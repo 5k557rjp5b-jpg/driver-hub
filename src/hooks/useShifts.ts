@@ -2,17 +2,29 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
 import type { Shift } from '../types';
-import { getStartOfToday } from '../utils/hours';
+import {
+  filterTodayShifts,
+  getStartOfMonth,
+} from '../utils/hours';
+
+const ACTIVE_SHIFT_ERROR =
+  'You already have an active shift. End it before starting a new one.';
+
+function isActiveShiftConstraintError(message: string): boolean {
+  return message.includes('shifts_one_active_per_user_idx');
+}
 
 export function useShifts(userId: string | undefined) {
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [activeShift, setActiveShift] = useState<Shift | null>(null);
+  const [periodShifts, setPeriodShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const fetchShifts = useCallback(async () => {
     if (!userId) {
-      setShifts([]);
+      setActiveShift(null);
+      setPeriodShifts([]);
       setLoading(false);
       return;
     }
@@ -20,19 +32,35 @@ export function useShifts(userId: string | undefined) {
     setLoading(true);
     setError(null);
 
-    const startOfToday = getStartOfToday().toISOString();
+    const startOfMonth = getStartOfMonth().toISOString();
 
-    const { data, error: fetchError } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('start_time', startOfToday)
-      .order('start_time', { ascending: false });
+    const [activeResult, periodResult] = await Promise.all([
+      supabase
+        .from('shifts')
+        .select('*')
+        .eq('user_id', userId)
+        .is('end_time', null)
+        .maybeSingle(),
+      supabase
+        .from('shifts')
+        .select('*')
+        .eq('user_id', userId)
+        .or(
+          `end_time.is.null,start_time.gte.${startOfMonth},end_time.gte.${startOfMonth}`,
+        )
+        .order('start_time', { ascending: false }),
+    ]);
 
-    if (fetchError) {
-      setError(fetchError.message);
+    if (activeResult.error) {
+      setError(activeResult.error.message);
     } else {
-      setShifts(data ?? []);
+      setActiveShift(activeResult.data);
+    }
+
+    if (periodResult.error) {
+      setError(periodResult.error.message);
+    } else {
+      setPeriodShifts(periodResult.data ?? []);
     }
 
     setLoading(false);
@@ -42,28 +70,59 @@ export function useShifts(userId: string | undefined) {
     fetchShifts();
   }, [fetchShifts]);
 
-  const activeShift = shifts.find((shift) => !shift.end_time) ?? null;
+  const todayShifts = filterTodayShifts(periodShifts);
 
   const startShift = useCallback(async () => {
-    if (!userId || activeShift) {
-      return { error: 'A shift is already in progress.' };
+    if (!userId) {
+      return { error: 'You must be signed in to start a shift.' };
+    }
+
+    if (activeShift) {
+      const message = ACTIVE_SHIFT_ERROR;
+      setError(message);
+      return { error: message };
     }
 
     setActionLoading(true);
     setError(null);
+
+    const { data: existingActive, error: checkError } = await supabase
+      .from('shifts')
+      .select('id')
+      .eq('user_id', userId)
+      .is('end_time', null)
+      .maybeSingle();
+
+    if (checkError) {
+      setActionLoading(false);
+      setError(checkError.message);
+      return { error: checkError.message };
+    }
+
+    if (existingActive) {
+      setActionLoading(false);
+      const message = ACTIVE_SHIFT_ERROR;
+      setError(message);
+      await fetchShifts();
+      return { error: message };
+    }
 
     const { error: insertError } = await supabase.from('shifts').insert({
       user_id: userId,
       start_time: new Date().toISOString(),
     });
 
-    setActionLoading(false);
-
     if (insertError) {
-      setError(insertError.message);
-      return { error: insertError.message };
+      const message = isActiveShiftConstraintError(insertError.message)
+        ? ACTIVE_SHIFT_ERROR
+        : insertError.message;
+      setError(message);
+      setActionLoading(false);
+      await fetchShifts();
+      return { error: message };
     }
 
+    setActionLoading(false);
     await fetchShifts();
     return { error: null };
   }, [userId, activeShift, fetchShifts]);
@@ -93,8 +152,9 @@ export function useShifts(userId: string | undefined) {
   }, [activeShift, fetchShifts]);
 
   return {
-    shifts,
     activeShift,
+    periodShifts,
+    todayShifts,
     loading,
     error,
     actionLoading,
