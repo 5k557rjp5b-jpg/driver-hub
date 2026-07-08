@@ -10,20 +10,31 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '../components/Button';
+import { StatCard } from '../components/StatCard';
 import { useAuth } from '../context/AuthContext';
 import { useShifts } from '../hooks/useShifts';
+import { useWageSettings } from '../hooks/useWageSettings';
+import {
+  calculateDailyEarnings,
+  calculateMonthlyEarnings,
+  calculateWeeklyEarnings,
+  formatCurrency,
+  toEarningsSettings,
+} from '../utils/earnings';
 import {
   calculateTodayHours,
+  calculateWeekHours,
   formatHours,
   formatTime,
-  getShiftDurationMs,
+  getShiftDurationHours,
 } from '../utils/hours';
 
 export function DashboardScreen() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const {
-    shifts,
     activeShift,
+    todayShifts,
+    periodShifts,
     loading,
     error,
     actionLoading,
@@ -31,6 +42,7 @@ export function DashboardScreen() {
     endShift,
     refresh,
   } = useShifts(user?.id);
+  const { settings, loading: settingsLoading } = useWageSettings(user?.id);
 
   const [now, setNow] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
@@ -40,7 +52,19 @@ export function DashboardScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  const todayHours = calculateTodayHours(shifts, now);
+  const earningsSettings = settings ? toEarningsSettings(settings) : null;
+  const todayHours = calculateTodayHours(periodShifts, now);
+  const weekHours = calculateWeekHours(periodShifts, now);
+  const todayEarnings = earningsSettings
+    ? calculateDailyEarnings(periodShifts, earningsSettings, now, now)
+    : 0;
+  const weekEarnings = earningsSettings
+    ? calculateWeeklyEarnings(periodShifts, earningsSettings, now)
+    : 0;
+  const monthEarnings = earningsSettings
+    ? calculateMonthlyEarnings(periodShifts, earningsSettings, now)
+    : 0;
+  const currency = earningsSettings?.currency ?? 'GBP';
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -48,15 +72,7 @@ export function DashboardScreen() {
     setRefreshing(false);
   };
 
-  const handleStartShift = async () => {
-    await startShift();
-  };
-
-  const handleEndShift = async () => {
-    await endShift();
-  };
-
-  if (loading) {
+  if (loading || settingsLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color="#1D4ED8" size="large" />
@@ -65,29 +81,34 @@ export function DashboardScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} />}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.badge}>Driver Hub</Text>
-            <Text style={styles.title}>Dashboard</Text>
-            <Text style={styles.email}>{user?.email}</Text>
-          </View>
-          <Button
-            onPress={signOut}
-            style={styles.signOutButton}
-            title="Sign Out"
-            variant="secondary"
-          />
+          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.title}>Dashboard</Text>
+          <Text style={styles.email}>{user?.email}</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Today&apos;s Hours</Text>
-          <Text style={styles.hoursValue}>{formatHours(todayHours)}</Text>
-          <Text style={styles.cardHint}>Includes your current shift if one is active.</Text>
+        <View style={styles.statsGrid}>
+          <StatCard label="Today's Hours" value={formatHours(todayHours)} />
+          <StatCard
+            label="Today's Earnings"
+            value={formatCurrency(todayEarnings, currency)}
+          />
+          <StatCard label="This Week's Hours" value={formatHours(weekHours)} />
+          <StatCard
+            label="This Week's Earnings"
+            value={formatCurrency(weekEarnings, currency)}
+          />
+          <StatCard
+            label="This Month's Earnings"
+            hint="Based on your wage settings"
+            style={styles.fullWidthCard}
+            value={formatCurrency(monthEarnings, currency)}
+          />
         </View>
 
         <View style={styles.card}>
@@ -116,22 +137,22 @@ export function DashboardScreen() {
           <Button
             disabled={!!activeShift}
             loading={actionLoading && !activeShift}
-            onPress={handleStartShift}
+            onPress={startShift}
             title="Start Shift"
           />
           <Button
             disabled={!activeShift}
             loading={actionLoading && !!activeShift}
-            onPress={handleEndShift}
+            onPress={endShift}
             title="End Shift"
             variant="danger"
           />
         </View>
 
-        {shifts.length > 0 ? (
+        {todayShifts.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Today&apos;s Shifts</Text>
-            {shifts.map((shift) => (
+            {todayShifts.map((shift) => (
               <View key={shift.id} style={styles.shiftRow}>
                 <Text style={styles.shiftRowTime}>
                   {formatTime(shift.start_time)}
@@ -139,7 +160,7 @@ export function DashboardScreen() {
                   {shift.end_time ? formatTime(shift.end_time) : 'In progress'}
                 </Text>
                 <Text style={styles.shiftRowDuration}>
-                  {formatHours(getShiftDurationMs(shift, now) / (1000 * 60 * 60))}
+                  {formatHours(getShiftDurationHours(shift, now))}
                 </Text>
               </View>
             ))}
@@ -211,16 +232,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
-  header: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 24,
+  fullWidthCard: {
+    minWidth: '100%',
   },
-  hoursValue: {
-    color: '#0F172A',
-    fontSize: 40,
-    fontWeight: '700',
+  header: {
+    marginBottom: 20,
   },
   shiftDetailLabel: {
     color: '#64748B',
@@ -252,9 +268,11 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 14,
   },
-  signOutButton: {
-    minHeight: 40,
-    paddingHorizontal: 12,
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 16,
   },
   statusActive: {
     backgroundColor: '#DCFCE7',
