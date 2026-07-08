@@ -1,5 +1,4 @@
--- Milestone 2 migration for existing Driver Hub databases.
--- Run this if you already applied the original schema.sql.
+-- Milestone 2: notes, single active shift constraint, wage settings
 
 alter table public.shifts
   add column if not exists notes text;

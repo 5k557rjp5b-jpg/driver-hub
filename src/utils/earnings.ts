@@ -1,10 +1,8 @@
 import type { Shift, WageSettings } from '../types';
 import {
-  calculateHoursInPeriod,
   getShiftDurationHours,
   getShiftHoursOnDate,
   getStartOfMonth,
-  getStartOfToday,
   getStartOfWeek,
 } from './hours';
 

@@ -35,8 +35,13 @@ npm install
 ### 2. Create a Supabase project
 
 1. Create a project at [supabase.com](https://supabase.com/)
-2. Open the SQL editor and run [`supabase/schema.sql`](supabase/schema.sql)
-   - If upgrading an existing database, also run [`supabase/migrations/002_milestone2.sql`](supabase/migrations/002_milestone2.sql)
+2. Open the SQL editor and run [`supabase/schema.sql`](supabase/schema.sql), **or** run migrations via CLI:
+   ```bash
+   cp .env.example .env
+   # Set SUPABASE_DB_URL in .env, then:
+   npm run db:migrate
+   ```
+   - If upgrading an existing database that already has the shifts table, run only the Milestone 2 migration file: [`supabase/migrations/20260708100000_milestone2.sql`](supabase/migrations/20260708100000_milestone2.sql)
 3. In **Project Settings → API**, copy your project URL and anon public key
 
 ### 3. Configure environment variables
@@ -49,6 +54,7 @@ Set:
 
 - `EXPO_PUBLIC_SUPABASE_URL`
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_DB_URL` (for `npm run db:migrate`)
 
 ### 4. Run the app
 
