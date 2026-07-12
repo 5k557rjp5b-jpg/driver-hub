@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
-import type { Shift } from '../types';
+import type { Break, EarningsAdjustment, Shift } from '../types';
+import { calculatePay } from '../utils/earnings';
+import { PAY_ERR_002 } from './usePayConfiguration';
 import {
   filterTodayShifts,
   getStartOfMonth,
@@ -86,6 +88,25 @@ export function useShifts(userId: string | undefined) {
     setActionLoading(true);
     setError(null);
 
+    const { data: payConfig, error: payConfigError } = await supabase
+      .from('pay_configurations')
+      .select('id')
+      .eq('user_id', userId)
+      .is('superseded_at', null)
+      .maybeSingle();
+
+    if (payConfigError) {
+      setActionLoading(false);
+      setError(payConfigError.message);
+      return { error: payConfigError.message };
+    }
+
+    if (!payConfig) {
+      setActionLoading(false);
+      setError(PAY_ERR_002);
+      return { error: PAY_ERR_002 };
+    }
+
     const { data: existingActive, error: checkError } = await supabase
       .from('shifts')
       .select('id')
@@ -109,7 +130,10 @@ export function useShifts(userId: string | undefined) {
 
     const { error: insertError } = await supabase.from('shifts').insert({
       user_id: userId,
+      pay_configuration_id: payConfig.id,
       start_time: new Date().toISOString(),
+      status: 'active',
+      notes: '',
     });
 
     if (insertError) {
@@ -135,9 +159,50 @@ export function useShifts(userId: string | undefined) {
     setActionLoading(true);
     setError(null);
 
+    const endTime = new Date().toISOString();
+    const completedShift: Shift = { ...activeShift, end_time: endTime };
+
+    const [payConfigResult, breaksResult, adjustmentsResult] = await Promise.all([
+      supabase
+        .from('pay_configurations')
+        .select('*')
+        .eq('id', activeShift.pay_configuration_id)
+        .maybeSingle(),
+      supabase.from('breaks').select('*').eq('shift_id', activeShift.id),
+      supabase.from('earnings_adjustments').select('*').eq('shift_id', activeShift.id),
+    ]);
+
+    if (payConfigResult.error) {
+      setActionLoading(false);
+      setError(payConfigResult.error.message);
+      return { error: payConfigResult.error.message };
+    }
+
+    if (!payConfigResult.data) {
+      setActionLoading(false);
+      const message = 'Pay configuration for this shift could not be found.';
+      setError(message);
+      return { error: message };
+    }
+
+    const breaks = (breaksResult.data ?? []) as Break[];
+    const adjustments = (adjustmentsResult.data ?? []) as EarningsAdjustment[];
+    const payBreakdown = calculatePay(
+      completedShift,
+      payConfigResult.data,
+      breaks,
+      adjustments,
+    );
+
     const { error: updateError } = await supabase
       .from('shifts')
-      .update({ end_time: new Date().toISOString() })
+      .update({
+        end_time: endTime,
+        base_pay_pence: payBreakdown.basePayPence,
+        final_earnings_pence: payBreakdown.finalEarningsPence,
+        status: payBreakdown.needsReview ? 'needs_review' : 'completed',
+        updated_at: endTime,
+      })
       .eq('id', activeShift.id);
 
     setActionLoading(false);

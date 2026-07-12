@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -9,14 +10,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { useAuth } from '../context/AuthContext';
+import { useBreaks } from '../hooks/useBreaks';
+import { useEarningsAdjustments } from '../hooks/useEarningsAdjustments';
+import { usePayConfiguration } from '../hooks/usePayConfiguration';
 import { useShiftDetails } from '../hooks/useShiftHistory';
-import { useWageSettings } from '../hooks/useWageSettings';
 import type { HistoryStackParamList } from '../types';
-import {
-  calculateShiftEarningsForShift,
-  formatCurrency,
-  toEarningsSettings,
-} from '../utils/earnings';
+import { calculatePay, formatCurrency } from '../utils/earnings';
 import { formatDate, formatHours, formatTime, getShiftDurationHours } from '../utils/hours';
 
 type Props = NativeStackScreenProps<HistoryStackParamList, 'ShiftDetails'>;
@@ -34,12 +33,24 @@ export function ShiftDetailsScreen({ route }: Props) {
   const { user } = useAuth();
   const { shiftId } = route.params;
   const { shift, loading, error } = useShiftDetails(user?.id, shiftId);
-  const { settings, loading: settingsLoading } = useWageSettings(user?.id);
+  const { fetchConfigurationById } = usePayConfiguration(user?.id);
+  const { breaks, loading: breaksLoading } = useBreaks(shiftId);
+  const { adjustments, loading: adjustmentsLoading } = useEarningsAdjustments(shiftId);
+  const [payConfig, setPayConfig] = useState<Awaited<
+    ReturnType<typeof fetchConfigurationById>
+  >['configuration']>(null);
 
-  const earningsSettings = settings ? toEarningsSettings(settings) : null;
-  const currency = earningsSettings?.currency ?? 'GBP';
+  useEffect(() => {
+    if (!shift?.pay_configuration_id) {
+      return;
+    }
 
-  if (loading || settingsLoading) {
+    fetchConfigurationById(shift.pay_configuration_id).then((result) => {
+      setPayConfig(result.configuration);
+    });
+  }, [shift?.pay_configuration_id, fetchConfigurationById]);
+
+  if (loading || breaksLoading || adjustmentsLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color="#1D4ED8" size="large" />
@@ -58,9 +69,12 @@ export function ShiftDetailsScreen({ route }: Props) {
   }
 
   const hours = getShiftDurationHours(shift);
-  const earnings = earningsSettings
-    ? calculateShiftEarningsForShift(shift, earningsSettings)
-    : 0;
+  const breakdown =
+    shift.end_time && payConfig
+      ? calculatePay(shift, payConfig, breaks, adjustments)
+      : null;
+  const finalEarnings =
+    shift.final_earnings_pence ?? breakdown?.finalEarningsPence ?? 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -78,13 +92,59 @@ export function ShiftDetailsScreen({ route }: Props) {
             value={shift.end_time ? formatTime(shift.end_time) : 'In progress'}
           />
           <DetailRow label="Total Hours" value={formatHours(hours)} />
-          <DetailRow label="Estimated Pay" value={formatCurrency(earnings, currency)} />
+          <DetailRow label="Status" value={shift.status.replace('_', ' ')} />
+          <DetailRow label="Final Pay" value={formatCurrency(finalEarnings)} />
+        </View>
+
+        {breakdown ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Pay Breakdown</Text>
+            <DetailRow label="Base Pay" value={formatCurrency(breakdown.basePayPence)} />
+            <DetailRow label="Bonuses" value={formatCurrency(breakdown.bonusesPence)} />
+            <DetailRow label="Deductions" value={formatCurrency(breakdown.deductionsPence)} />
+            {breakdown.needsReview ? (
+              <Text style={styles.reviewNote}>
+                Deductions exceeded earnings. This shift is flagged for review.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Breaks</Text>
+          {breaks.length === 0 ? (
+            <Text style={styles.emptyText}>No breaks recorded.</Text>
+          ) : (
+            breaks.map((item) => (
+              <Text key={item.id} style={styles.listRow}>
+                {formatTime(item.start_time)}
+                {' - '}
+                {item.end_time ? formatTime(item.end_time) : 'In progress'}
+                {' · '}
+                {item.is_paid ? 'Paid' : 'Unpaid'}
+              </Text>
+            ))
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Adjustments</Text>
+          {adjustments.length === 0 ? (
+            <Text style={styles.emptyText}>No adjustments recorded.</Text>
+          ) : (
+            adjustments.map((item) => (
+              <Text key={item.id} style={styles.listRow}>
+                {item.type === 'bonus' ? '+' : '-'}
+                {formatCurrency(item.amount_pence)} {item.label}
+              </Text>
+            ))
+          )}
         </View>
 
         <View style={styles.card}>
           <Text style={styles.notesLabel}>Shift Notes</Text>
           <Text style={styles.notesValue}>
-            {shift.notes?.trim() ? shift.notes : 'No notes added for this shift.'}
+            {shift.notes.trim() ? shift.notes : 'No notes added for this shift.'}
           </Text>
           <Text style={styles.notesHint}>Note editing will be available in a future update.</Text>
         </View>
@@ -144,6 +204,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
   },
+  emptyText: {
+    color: '#64748B',
+    fontSize: 14,
+  },
   errorText: {
     color: '#B91C1C',
     fontSize: 16,
@@ -151,6 +215,11 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 20,
+  },
+  listRow: {
+    color: '#334155',
+    fontSize: 14,
+    marginBottom: 8,
   },
   notesHint: {
     color: '#94A3B8',
@@ -167,6 +236,17 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 15,
     lineHeight: 22,
+  },
+  reviewNote: {
+    color: '#B45309',
+    fontSize: 14,
+    marginTop: 12,
+  },
+  sectionTitle: {
+    color: '#0F172A',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
   },
   title: {
     color: '#0F172A',

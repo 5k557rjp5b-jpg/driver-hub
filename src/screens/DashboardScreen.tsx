@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,16 +12,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '../components/Button';
+import { Input } from '../components/Input';
 import { StatCard } from '../components/StatCard';
 import { useAuth } from '../context/AuthContext';
+import { useBreaks } from '../hooks/useBreaks';
+import { useEarningsAdjustments } from '../hooks/useEarningsAdjustments';
+import { usePayConfiguration } from '../hooks/usePayConfiguration';
 import { useShifts } from '../hooks/useShifts';
-import { useWageSettings } from '../hooks/useWageSettings';
 import {
-  calculateDailyEarnings,
-  calculateMonthlyEarnings,
-  calculateWeeklyEarnings,
+  calculateDailyEarningsPence,
+  calculateMonthlyEarningsPence,
+  calculateWeeklyEarningsPence,
   formatCurrency,
-  toEarningsSettings,
 } from '../utils/earnings';
 import {
   calculateTodayHours,
@@ -42,29 +46,38 @@ export function DashboardScreen() {
     endShift,
     refresh,
   } = useShifts(user?.id);
-  const { settings, loading: settingsLoading } = useWageSettings(user?.id);
+  const { configuration, hasActiveConfiguration, loading: payLoading } =
+    usePayConfiguration(user?.id);
+  const {
+    activeBreak,
+    actionLoading: breakActionLoading,
+    startBreak,
+    endBreak,
+    error: breakError,
+  } = useBreaks(activeShift?.id, configuration?.paid_breaks_enabled ?? false);
+  const {
+    adjustments,
+    actionLoading: adjustmentActionLoading,
+    addAdjustment,
+    error: adjustmentError,
+  } = useEarningsAdjustments(activeShift?.id);
 
   const [now, setNow] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const [adjustmentLabel, setAdjustmentLabel] = useState('');
+  const [adjustmentAmount, setAdjustmentAmount] = useState('');
+  const [adjustmentType, setAdjustmentType] = useState<'bonus' | 'deduction'>('bonus');
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(interval);
   }, []);
 
-  const earningsSettings = settings ? toEarningsSettings(settings) : null;
   const todayHours = calculateTodayHours(periodShifts, now);
   const weekHours = calculateWeekHours(periodShifts, now);
-  const todayEarnings = earningsSettings
-    ? calculateDailyEarnings(periodShifts, earningsSettings, now, now)
-    : 0;
-  const weekEarnings = earningsSettings
-    ? calculateWeeklyEarnings(periodShifts, earningsSettings, now)
-    : 0;
-  const monthEarnings = earningsSettings
-    ? calculateMonthlyEarnings(periodShifts, earningsSettings, now)
-    : 0;
-  const currency = earningsSettings?.currency ?? 'GBP';
+  const todayEarnings = calculateDailyEarningsPence(periodShifts, now, now);
+  const weekEarnings = calculateWeeklyEarningsPence(periodShifts, now);
+  const monthEarnings = calculateMonthlyEarningsPence(periodShifts, now);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -72,7 +85,26 @@ export function DashboardScreen() {
     setRefreshing(false);
   };
 
-  if (loading || settingsLoading) {
+  const handleAddAdjustment = async () => {
+    const pounds = parseFloat(adjustmentAmount);
+    if (Number.isNaN(pounds) || pounds <= 0) {
+      Alert.alert('Invalid amount', 'Enter an amount greater than £0.00.');
+      return;
+    }
+
+    const result = await addAdjustment({
+      type: adjustmentType,
+      label: adjustmentLabel,
+      amount_pence: Math.round(pounds * 100),
+    });
+
+    if (!result.error) {
+      setAdjustmentLabel('');
+      setAdjustmentAmount('');
+    }
+  };
+
+  if (loading || payLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color="#1D4ED8" size="large" />
@@ -92,22 +124,24 @@ export function DashboardScreen() {
           <Text style={styles.email}>{user?.email}</Text>
         </View>
 
+        {!hasActiveConfiguration ? (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>
+              Complete Pay Setup in Profile before starting a shift.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.statsGrid}>
           <StatCard label="Today's Hours" value={formatHours(todayHours)} />
-          <StatCard
-            label="Today's Earnings"
-            value={formatCurrency(todayEarnings, currency)}
-          />
+          <StatCard label="Today's Earnings" value={formatCurrency(todayEarnings)} />
           <StatCard label="This Week's Hours" value={formatHours(weekHours)} />
+          <StatCard label="This Week's Earnings" value={formatCurrency(weekEarnings)} />
           <StatCard
-            label="This Week's Earnings"
-            value={formatCurrency(weekEarnings, currency)}
-          />
-          <StatCard
+            hint="Completed shifts only"
             label="This Month's Earnings"
-            hint="Based on your wage settings"
             style={styles.fullWidthCard}
-            value={formatCurrency(monthEarnings, currency)}
+            value={formatCurrency(monthEarnings)}
           />
         </View>
 
@@ -135,7 +169,7 @@ export function DashboardScreen() {
 
         <View style={styles.actions}>
           <Button
-            disabled={!!activeShift}
+            disabled={!!activeShift || !hasActiveConfiguration}
             loading={actionLoading && !activeShift}
             onPress={startShift}
             title="Start Shift"
@@ -148,6 +182,94 @@ export function DashboardScreen() {
             variant="danger"
           />
         </View>
+
+        {activeShift ? (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Breaks</Text>
+            <Text style={styles.cardHint}>
+              {activeBreak
+                ? `On break since ${formatTime(activeBreak.start_time)}`
+                : 'No active break.'}
+            </Text>
+            {breakError ? <Text style={styles.inlineError}>{breakError}</Text> : null}
+            <View style={styles.inlineActions}>
+              <Button
+                disabled={!!activeBreak}
+                loading={breakActionLoading && !activeBreak}
+                onPress={startBreak}
+                style={styles.inlineButton}
+                title="Start Break"
+                variant="secondary"
+              />
+              <Button
+                disabled={!activeBreak}
+                loading={breakActionLoading && !!activeBreak}
+                onPress={endBreak}
+                style={styles.inlineButton}
+                title="End Break"
+                variant="secondary"
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {activeShift ? (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Adjustments</Text>
+            <Text style={styles.cardHint}>
+              Add bonuses or deductions before ending the shift.
+            </Text>
+            {adjustments.map((item) => (
+              <Text key={item.id} style={styles.adjustmentRow}>
+                {item.type === 'bonus' ? '+' : '-'}
+                {formatCurrency(item.amount_pence)} {item.label}
+              </Text>
+            ))}
+            <View style={styles.typeRow}>
+              {(['bonus', 'deduction'] as const).map((type) => (
+                <Pressable
+                  key={type}
+                  onPress={() => setAdjustmentType(type)}
+                  style={[
+                    styles.typePill,
+                    adjustmentType === type && styles.typePillActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.typePillText,
+                      adjustmentType === type && styles.typePillTextActive,
+                    ]}
+                  >
+                    {type === 'bonus' ? 'Bonus' : 'Deduction'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.adjustmentForm}>
+              <Input
+                label="Label"
+                onChangeText={setAdjustmentLabel}
+                placeholder="Fuel, bonus, etc."
+                value={adjustmentLabel}
+              />
+              <Input
+                keyboardType="decimal-pad"
+                label="Amount (£)"
+                onChangeText={setAdjustmentAmount}
+                placeholder="10.00"
+                value={adjustmentAmount}
+              />
+            </View>
+            {adjustmentError ? <Text style={styles.inlineError}>{adjustmentError}</Text> : null}
+            <Button
+              loading={adjustmentActionLoading}
+              onPress={handleAddAdjustment}
+              title="Add Adjustment"
+              variant="secondary"
+            />
+          </View>
+        ) : null}
 
         {todayShifts.length > 0 ? (
           <View style={styles.card}>
@@ -175,6 +297,15 @@ const styles = StyleSheet.create({
   actions: {
     gap: 12,
     marginBottom: 20,
+  },
+  adjustmentForm: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  adjustmentRow: {
+    color: '#334155',
+    fontSize: 14,
+    marginBottom: 6,
   },
   badge: {
     color: '#1D4ED8',
@@ -238,6 +369,19 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 20,
   },
+  inlineActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  inlineButton: {
+    flex: 1,
+  },
+  inlineError: {
+    color: '#DC2626',
+    fontSize: 13,
+    marginTop: 8,
+  },
   shiftDetailLabel: {
     color: '#64748B',
     fontSize: 13,
@@ -295,5 +439,39 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 28,
     fontWeight: '700',
+  },
+  typePill: {
+    backgroundColor: '#E2E8F0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  typePillActive: {
+    backgroundColor: '#DBEAFE',
+  },
+  typePillText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  typePillTextActive: {
+    color: '#1D4ED8',
+  },
+  typeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  warningBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    marginBottom: 16,
+    padding: 12,
+  },
+  warningText: {
+    color: '#92400E',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

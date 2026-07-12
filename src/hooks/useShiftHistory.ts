@@ -23,6 +23,7 @@ export function useShiftHistory(userId: string | undefined) {
       .select('*')
       .eq('user_id', userId)
       .not('end_time', 'is', null)
+      .in('status', ['completed', 'needs_review'])
       .order('start_time', { ascending: false });
 
     if (fetchError) {

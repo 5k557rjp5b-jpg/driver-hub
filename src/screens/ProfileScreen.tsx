@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -12,62 +14,76 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { useAuth } from '../context/AuthContext';
-import { useWageSettings } from '../hooks/useWageSettings';
+import {
+  DEFAULT_PAY_CONFIGURATION,
+  usePayConfiguration,
+  validatePayConfiguration,
+} from '../hooks/usePayConfiguration';
+import type { PayModel } from '../types';
+import { isRateBasedPayModel } from '../utils/earnings';
+
+const PAY_MODEL_OPTIONS: { value: PayModel; label: string }[] = [
+  { value: 'hourly', label: 'Hourly' },
+  { value: 'fixed_shift', label: 'Fixed Shift' },
+  { value: 'per_drop', label: 'Per Drop' },
+  { value: 'per_stop', label: 'Per Stop' },
+  { value: 'manual', label: 'Manual' },
+];
 
 export function ProfileScreen() {
   const { user, signOut } = useAuth();
-  const { settings, loading, saving, error, saveSettings } = useWageSettings(user?.id);
+  const { configuration, loading, saving, error, saveConfiguration } =
+    usePayConfiguration(user?.id);
 
-  const [hourlyRate, setHourlyRate] = useState('');
-  const [overtimeRate, setOvertimeRate] = useState('');
-  const [overtimeThreshold, setOvertimeThreshold] = useState('');
+  const [payModel, setPayModel] = useState<PayModel>(DEFAULT_PAY_CONFIGURATION.pay_model);
+  const [ratePounds, setRatePounds] = useState('');
+  const [paidBreaksEnabled, setPaidBreaksEnabled] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    if (settings && !initialized) {
-      setHourlyRate(String(settings.hourly_rate));
-      setOvertimeRate(String(settings.overtime_rate));
-      setOvertimeThreshold(String(settings.overtime_threshold_hours));
+    if (configuration && !initialized) {
+      setPayModel(configuration.pay_model);
+      setRatePounds(
+        configuration.rate_pence != null ? String(configuration.rate_pence / 100) : '',
+      );
+      setPaidBreaksEnabled(configuration.paid_breaks_enabled);
       setInitialized(true);
     }
-  }, [settings, initialized]);
+  }, [configuration, initialized]);
 
   const handleSave = async () => {
-    const hourly = parseFloat(hourlyRate);
-    const overtime = parseFloat(overtimeRate);
-    const threshold = parseFloat(overtimeThreshold);
+    const ratePence = ratePounds.trim()
+      ? Math.round(parseFloat(ratePounds) * 100)
+      : null;
 
-    if (Number.isNaN(hourly) || hourly < 0) {
-      setFormError('Enter a valid standard hourly rate.');
+    if (isRateBasedPayModel(payModel) && (ratePence == null || Number.isNaN(ratePence))) {
+      setFormError('Enter a valid rate for this pay model.');
       return;
     }
 
-    if (Number.isNaN(overtime) || overtime < 0) {
-      setFormError('Enter a valid overtime hourly rate.');
-      return;
-    }
+    const values = {
+      pay_model: payModel,
+      rate_pence: ratePence,
+      paid_breaks_enabled: paidBreaksEnabled,
+    };
 
-    if (Number.isNaN(threshold) || threshold <= 0) {
-      setFormError('Overtime threshold must be greater than 0 hours.');
+    const validationError = validatePayConfiguration(values);
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
 
     setFormError(null);
     setSuccess(null);
 
-    const result = await saveSettings({
-      hourly_rate: hourly,
-      overtime_rate: overtime,
-      overtime_threshold_hours: threshold,
-      currency: 'GBP',
-    });
-
+    const result = await saveConfiguration(values);
     if (result.error) {
       setFormError(result.error);
     } else {
-      setSuccess('Wage settings saved.');
+      setSuccess('Pay setup saved.');
+      setInitialized(false);
     }
   };
 
@@ -96,33 +112,58 @@ export function ProfileScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Wage Settings</Text>
+          <Text style={styles.cardTitle}>Pay Setup</Text>
           <Text style={styles.cardHint}>
-            Configure your rates to calculate estimated earnings across the app.
+            Configure how your shifts are paid. Saving creates a new configuration and
+            preserves history for past shifts.
           </Text>
 
           <View style={styles.form}>
-            <Input
-              keyboardType="decimal-pad"
-              label="Standard Hourly Rate (£)"
-              onChangeText={setHourlyRate}
-              placeholder="12.00"
-              value={hourlyRate}
-            />
-            <Input
-              keyboardType="decimal-pad"
-              label="Overtime Hourly Rate (£)"
-              onChangeText={setOvertimeRate}
-              placeholder="18.00"
-              value={overtimeRate}
-            />
-            <Input
-              keyboardType="decimal-pad"
-              label="Overtime Begins After (hours)"
-              onChangeText={setOvertimeThreshold}
-              placeholder="8"
-              value={overtimeThreshold}
-            />
+            <Text style={styles.sectionLabel}>Pay Model</Text>
+            <View style={styles.modelGrid}>
+              {PAY_MODEL_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setPayModel(option.value)}
+                  style={[
+                    styles.modelPill,
+                    payModel === option.value && styles.modelPillActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modelPillText,
+                      payModel === option.value && styles.modelPillTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {isRateBasedPayModel(payModel) ? (
+              <Input
+                keyboardType="decimal-pad"
+                label="Rate (£)"
+                onChangeText={setRatePounds}
+                placeholder="16.50"
+                value={ratePounds}
+              />
+            ) : null}
+
+            {payModel === 'hourly' ? (
+              <View style={styles.switchRow}>
+                <View style={styles.switchCopy}>
+                  <Text style={styles.switchLabel}>Paid Breaks</Text>
+                  <Text style={styles.switchHint}>
+                    When enabled, break time counts toward hourly pay.
+                  </Text>
+                </View>
+                <Switch onValueChange={setPaidBreaksEnabled} value={paidBreaksEnabled} />
+              </View>
+            ) : null}
+
             <View style={styles.currencyRow}>
               <Text style={styles.currencyLabel}>Currency</Text>
               <Text style={styles.currencyValue}>£ GBP</Text>
@@ -133,7 +174,7 @@ export function ProfileScreen() {
             ) : null}
             {success ? <Text style={styles.success}>{success}</Text> : null}
 
-            <Button loading={saving} onPress={handleSave} title="Save Settings" />
+            <Button loading={saving} onPress={handleSave} title="Save Pay Setup" />
           </View>
         </View>
 
@@ -221,10 +262,56 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 20,
   },
+  modelGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  modelPill: {
+    backgroundColor: '#E2E8F0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  modelPillActive: {
+    backgroundColor: '#DBEAFE',
+  },
+  modelPillText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modelPillTextActive: {
+    color: '#1D4ED8',
+  },
+  sectionLabel: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   success: {
     color: '#15803D',
     fontSize: 14,
     textAlign: 'center',
+  },
+  switchCopy: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  switchHint: {
+    color: '#64748B',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  switchLabel: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  switchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   title: {
     color: '#0F172A',
