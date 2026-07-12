@@ -133,6 +133,30 @@ describe('calculatePay', () => {
     expect(result.needsReview).toBe(true);
   });
 
+  it('small negative raw fraction rounds to 0 but still needs review', () => {
+    const result = calculatePay(
+      makeShift(),
+      makeConfig({ pay_model: 'fixed_shift', rate_pence: 1000 }),
+      [],
+      [makeAdjustment({ type: 'deduction', amount_pence: 1000, label: 'Fractional over' })],
+    );
+    // Simulate raw pre-rounding value between -1p and 0p via hourly fractional base
+    const fractionalResult = calculatePay(
+      makeShift({
+        start_time: '2026-07-10T08:00:00.000Z',
+        end_time: '2026-07-10T08:59:59.000Z',
+      }),
+      makeConfig({ pay_model: 'hourly', rate_pence: 1000 }),
+      [],
+      [makeAdjustment({ type: 'deduction', amount_pence: 1000, label: 'Exact match' })],
+    );
+    // 1000 pence/hr * (3599/3600)hr - 1000p deduction ≈ -0.28p raw → rounds to 0
+    expect(fractionalResult.finalEarningsPence).toBe(0);
+    expect(fractionalResult.needsReview).toBe(true);
+    expect(result.finalEarningsPence).toBe(0);
+    expect(result.needsReview).toBe(false);
+  });
+
   it('rounding boundary: raw result 1649.5p → 1650p', () => {
     const hourlyFractional = calculatePay(
       makeShift({

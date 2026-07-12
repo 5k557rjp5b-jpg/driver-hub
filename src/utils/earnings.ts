@@ -99,7 +99,7 @@ export function calculatePay(
 
   const rawFinal = basePayPence + bonusesPence - deductionsPence;
   const rounded = roundHalfUpPence(rawFinal);
-  const needsReview = rounded < 0;
+  const needsReview = rawFinal < 0;
   const finalEarningsPence = Math.max(0, rounded);
 
   return {

@@ -185,6 +185,18 @@ export function useShifts(userId: string | undefined) {
       return { error: message };
     }
 
+    if (breaksResult.error) {
+      setActionLoading(false);
+      setError(breaksResult.error.message);
+      return { error: breaksResult.error.message };
+    }
+
+    if (adjustmentsResult.error) {
+      setActionLoading(false);
+      setError(adjustmentsResult.error.message);
+      return { error: adjustmentsResult.error.message };
+    }
+
     const breaks = (breaksResult.data ?? []) as Break[];
     const adjustments = (adjustmentsResult.data ?? []) as EarningsAdjustment[];
     const payBreakdown = calculatePay(
