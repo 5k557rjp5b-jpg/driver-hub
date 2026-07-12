@@ -27,6 +27,24 @@ export function validatePayConfiguration(values: PayConfigurationInput): string 
   return null;
 }
 
+export async function replacePayConfigurationRpc(
+  userId: string,
+  values: PayConfigurationInput,
+): Promise<{ configuration: PayConfiguration | null; error: string | null }> {
+  const { data, error } = await supabase.rpc('replace_pay_configuration', {
+    p_user_id: userId,
+    p_pay_model: values.pay_model,
+    p_rate_pence: isRateBasedPayModel(values.pay_model) ? values.rate_pence : null,
+    p_paid_breaks_enabled: values.paid_breaks_enabled,
+  });
+
+  if (error) {
+    return { configuration: null, error: error.message };
+  }
+
+  return { configuration: (data as PayConfiguration | null) ?? null, error: null };
+}
+
 export function usePayConfiguration(userId: string | undefined) {
   const [configuration, setConfiguration] = useState<PayConfiguration | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,40 +97,19 @@ export function usePayConfiguration(userId: string | undefined) {
       setSaving(true);
       setError(null);
 
-      const now = new Date().toISOString();
-
-      if (configuration) {
-        const { error: supersedeError } = await supabase
-          .from('pay_configurations')
-          .update({ superseded_at: now })
-          .eq('id', configuration.id);
-
-        if (supersedeError) {
-          setSaving(false);
-          setError(supersedeError.message);
-          return { error: supersedeError.message };
-        }
-      }
-
-      const { error: insertError } = await supabase.from('pay_configurations').insert({
-        user_id: userId,
-        pay_model: values.pay_model,
-        rate_pence: isRateBasedPayModel(values.pay_model) ? values.rate_pence : null,
-        paid_breaks_enabled: values.paid_breaks_enabled,
-        effective_from: now,
-      });
+      const result = await replacePayConfigurationRpc(userId, values);
 
       setSaving(false);
 
-      if (insertError) {
-        setError(insertError.message);
-        return { error: insertError.message };
+      if (result.error) {
+        setError(result.error);
+        return { error: result.error };
       }
 
       await fetchConfiguration();
       return { error: null };
     },
-    [userId, configuration, fetchConfiguration],
+    [userId, fetchConfiguration],
   );
 
   const fetchConfigurationById = useCallback(async (configurationId: string) => {
