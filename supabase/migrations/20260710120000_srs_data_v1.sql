@@ -8,6 +8,16 @@
 -- If you still have the original migration file from 2026-07-10 (e.g. via
 -- `supabase db pull` or the dashboard), prefer that one and treat this as a
 -- cross-check instead.
+--
+-- Pre-launch / empty DB note (verified 2026-07-13):
+-- auth.users, shifts, and pay_configurations were empty; wage_settings did not
+-- exist. Safe to drop legacy Milestone 2 objects with no data migration.
+
+-- ============================================================================
+-- Legacy cleanup (pre–SRS-DATA Milestone 2)
+-- ============================================================================
+
+drop table if exists public.wage_settings cascade;
 
 -- ============================================================================
 -- Enums

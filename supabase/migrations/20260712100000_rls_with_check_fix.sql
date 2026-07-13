@@ -1,12 +1,12 @@
--- Driver Hub — RLS UPDATE policy WITH CHECK fix
--- Patches existing SRS-DATA v1.0 policies to add WITH CHECK on every UPDATE
--- policy, preventing users from changing ownership fields (user_id, etc.) on
--- rows they can update. Reconstructed from the live Supabase project on
--- 2026-07-12. Already applied live — version control only, do not run again.
+-- Driver Hub — RLS UPDATE policy WITH CHECK fix (idempotent)
 --
--- Use this file when the database already has SRS-DATA tables/policies from the
--- 2026-07-10 migration but predates the WITH CHECK fix. For a fresh install,
--- use 20260710120000_srs_data_v1.sql instead (policies already include WITH CHECK).
+-- The base migration 20260710120000_srs_data_v1.sql already creates UPDATE
+-- policies WITH CHECK. This file is kept for:
+--   1) Databases that received SRS-DATA before WITH CHECK was added
+--   2) Idempotent re-application on fresh installs (drop + recreate)
+--
+-- Already applied live — when initializing migration history on production,
+-- mark as applied rather than re-running unless policies are confirmed missing.
 
 drop policy if exists "Users can update own profile" on public.user_profiles;
 create policy "Users can update own profile" on public.user_profiles

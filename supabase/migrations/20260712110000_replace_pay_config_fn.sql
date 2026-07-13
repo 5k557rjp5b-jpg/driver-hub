@@ -1,6 +1,9 @@
 -- Driver Hub — atomic pay configuration replacement
 -- Already live on Supabase (applied directly on 2026-07-12).
--- Version control only — do not run against the existing database.
+-- Updated 2026-07-13: advisory lock for concurrency + SECURITY DEFINER grants.
+--
+-- For production: only apply via an approved migration path after explicit OK.
+-- For fresh throwaway/local DBs: safe to run as part of the active chain.
 
 create or replace function replace_pay_configuration(
   p_user_id uuid,
@@ -19,6 +22,10 @@ begin
     raise exception 'Not authorized to modify this user''s pay configuration';
   end if;
 
+  -- Serialize concurrent replacements for the same user so only one active
+  -- configuration can be written (unique index remains the hard guarantee).
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
+
   update pay_configurations
   set superseded_at = now()
   where user_id = p_user_id and superseded_at is null;
@@ -30,3 +37,6 @@ begin
   return new_config;
 end;
 $$;
+
+revoke all on function replace_pay_configuration(uuid, pay_model, integer, boolean) from public;
+grant execute on function replace_pay_configuration(uuid, pay_model, integer, boolean) to authenticated;

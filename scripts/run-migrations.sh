@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
+# Retired dangerous migrator.
+# The previous implementation blindly ran every supabase/migrations/*.sql file
+# against SUPABASE_DB_URL, which is unsafe once a database already has schema.
+
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+cat <<'EOF'
+Error: npm run db:migrate has been retired.
 
-if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
+Why:
+  The old script globbed and re-ran all SQL files against any configured
+  database. That would recreate (and fail on) objects that already exist
+  once SRS-DATA is live.
 
-if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
-  echo "Error: SUPABASE_DB_URL is not set."
-  echo "Add it to .env (see .env.example). You can copy the connection string"
-  echo "from Supabase Dashboard → Project Settings → Database."
-  exit 1
-fi
+Safe options:
+  Local / throwaway Postgres:
+    DATABASE_URL=postgres://... npm run db:migrate:local
 
-echo "Running Driver Hub migrations against configured database..."
+  Linked Supabase project (use intentionally; still needs approval for production):
+    npx supabase migration list
+    npx supabase db push
 
-for migration in supabase/migrations/*.sql; do
-  echo "→ $(basename "$migration")"
-  npx supabase db query --db-url "$SUPABASE_DB_URL" -f "$migration"
-done
+  Production baseline (metadata only, after explicit approval):
+    Apply supabase/tests/fixtures/mark_migrations_applied.sql
+    AFTER confirming schema already matches — do not re-run DDL.
+EOF
 
-echo "All migrations applied successfully."
+exit 1
