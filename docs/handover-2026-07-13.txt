@@ -1,0 +1,138 @@
+Driver Hub — Handover Checkpoint
+Date: 2026-07-13 (evening pause)
+Branch: cursor/srs-data-v1-sync-7194
+Latest commit: 2234469
+Draft PR: https://github.com/5k557rjp5b-jpg/driver-hub/pull/3
+Production project: kfefxjhowtyrpmddlivw
+Production was NOT touched.
+
+================================================================================
+CONTEXT
+================================================================================
+
+App code is synced to SRS-DATA v1.0 on branch cursor/srs-data-v1-sync-7194.
+Live Supabase was migrated manually (SQL Editor), not via normal migration flow.
+Fact-finding (user-verified on live) confirmed pre-launch empty DB:
+
+- auth.users: 0 rows
+- shifts: 0 rows
+- pay_configurations: 0 rows
+- wage_settings: does not exist
+- supabase_migrations.schema_migrations: does not exist
+
+Approved to continue local/throwaway work. Explicit approval still required
+before any production SQL / migration history writes.
+
+================================================================================
+VERIFIED (items 6 and 7)
+================================================================================
+
+### Item 6 — RLS policy reconciliation
+Compared all 7 UPDATE policies in:
+- supabase/migrations/20260710120000_srs_data_v1.sql (base)
+- supabase/migrations/20260712100000_rls_with_check_fix.sql (patch)
+
+Normalized whitespace; compared table, USING, WITH CHECK per policy name.
+
+Result: OVERALL_STRUCTURAL_IDENTITY = True
+- Users can update own profile — IDENTICAL
+- Users can update own pay configurations — IDENTICAL
+- Users can update own shifts — IDENTICAL
+- Users can update own breaks — IDENTICAL
+- Users can update own earnings adjustments — IDENTICAL
+- Users can update own earnings summaries — IDENTICAL
+- Users can update own sync operations — IDENTICAL
+
+Conclusion: On a fresh base apply, the RLS patch is a pure idempotent
+drop/recreate of the same definitions — no semantic divergence.
+
+### Item 7 — replace_pay_configuration concurrency
+Throwaway DB: driver_hub_migrate_test
+Method: seeded one active config; two concurrent psql sessions called
+replace_pay_configuration with rates 1500 and 1600.
+
+Result: PASS
+- Both sessions succeeded
+- Final active row count = 1
+- Advisory lock serializes callers; unique partial index remains hard guarantee
+
+Function also hardened with:
+- perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
+- REVOKE ALL ... FROM PUBLIC
+- GRANT EXECUTE ... TO authenticated
+
+================================================================================
+WORKING-TREE / BRANCH CHANGES SAVED
+================================================================================
+
+Committed in 2234469:
+- Drop wage_settings at top of 20260710120000_srs_data_v1.sql
+- Archive legacy migrations to supabase/archive/legacy/
+- Retire unsafe npm run db:migrate (scripts/run-migrations.sh hard-fails)
+- Add scripts/db-migrate-local.sh (refuses production ref)
+- Add scripts/prove-migration-chain.sh
+- Rename:
+  - 20260712_rls_with_check_fix.sql -> 20260712100000_rls_with_check_fix.sql
+  - 20260712_replace_pay_config_fn.sql -> 20260712110000_replace_pay_config_fn.sql
+- Add supabase/tests/fixtures/auth_stubs.sql
+- Add supabase/tests/fixtures/mark_migrations_applied.sql
+- Add supabase/tests/schema_inventory.sql
+- Add concurrency harness files
+- Add docs/migration-hardening-checkpoint.md
+
+Active migration chain (for fresh/local):
+1. 20260710120000_srs_data_v1.sql
+2. 20260712100000_rls_with_check_fix.sql
+3. 20260712110000_replace_pay_config_fn.sql
+
+================================================================================
+NOT DONE YET (do not invent new scope)
+================================================================================
+
+- Item 5: production schema inventory diff (fixture exists; no prod query run)
+- Item 9: integration tests
+- Pay-model UI recommendation (per_drop / per_stop / manual — engine supports;
+  dashboard does not collect drop/stop/manual inputs yet)
+- earnings_summaries write path clarification (table exists; app currently uses
+  shifts.final_earnings_pence for dashboard totals; no writer in this milestone)
+- Production schema_migrations baseline (needs explicit approval)
+  Fixture ready: supabase/tests/fixtures/mark_migrations_applied.sql
+
+================================================================================
+SAFE LOCAL COMMANDS
+================================================================================
+
+npm run db:migrate
+  -> retired; exits 1 with guidance
+
+DATABASE_URL=postgresql:///some_local_db?host=/var/run/postgresql \
+  bash scripts/db-migrate-local.sh
+  -> throwaway/local only; refuses kfefxjhowtyrpmddlivw
+
+bash scripts/prove-migration-chain.sh
+  -> recreate throwaway DB + migrate + verify
+
+================================================================================
+IMPORTANT CONSTRAINTS FOR NEXT AGENT
+================================================================================
+
+1. Do NOT push SQL / migrations / history changes to production without
+   explicit user approval.
+2. Keep changes tightly scoped to the approved task list.
+3. Prefer verifying with real pass/fail (as done for items 6 and 7) over
+   assuming correctness from code review alone.
+4. Branch for all this work: cursor/srs-data-v1-sync-7194
+5. Main already has earlier Milestone 1/2 and SRS app sync PR history;
+   this branch continues SRS-DATA migration hardening.
+
+================================================================================
+USEFUL LINKS
+================================================================================
+
+PR: https://github.com/5k557rjp5b-jpg/driver-hub/pull/3
+Branch: https://github.com/5k557rjp5b-jpg/driver-hub/tree/cursor/srs-data-v1-sync-7194
+Checkpoint doc: https://github.com/5k557rjp5b-jpg/driver-hub/blob/cursor/srs-data-v1-sync-7194/docs/migration-hardening-checkpoint.md
+Pay engine: https://github.com/5k557rjp5b-jpg/driver-hub/blob/cursor/srs-data-v1-sync-7194/src/utils/earnings.ts
+Pay config hook: https://github.com/5k557rjp5b-jpg/driver-hub/blob/cursor/srs-data-v1-sync-7194/src/hooks/usePayConfiguration.ts
+SRS schema: https://github.com/5k557rjp5b-jpg/driver-hub/blob/cursor/srs-data-v1-sync-7194/supabase/migrations/20260710120000_srs_data_v1.sql
+RPC migration: https://github.com/5k557rjp5b-jpg/driver-hub/blob/cursor/srs-data-v1-sync-7194/supabase/migrations/20260712110000_replace_pay_config_fn.sql
