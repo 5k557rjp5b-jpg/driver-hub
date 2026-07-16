@@ -19,9 +19,12 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "@types/react": "~19.2.2",
+    "dotenv": "^17.4.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.0",
+    "pg": "^8.22.0",
     "typescript": "~6.0.3",
     "vitest": "^3.2.4"
   },
@@ -33,6 +36,7 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "bash scripts/run-migrations.sh"
   },
   "private": true
