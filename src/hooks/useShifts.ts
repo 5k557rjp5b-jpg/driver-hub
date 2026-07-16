@@ -5,6 +5,13 @@ import type { Shift } from '../types';
 import { PAY_ERR_002 } from './usePayConfiguration';
 import { endActiveShift } from './endActiveShift';
 import {
+  applyShiftPatch,
+  nextCountValue,
+  persistManualEarningsPence,
+  persistShiftCount,
+  type CountField,
+} from './shiftPayInputs';
+import {
   filterTodayShifts,
   getStartOfMonth,
 } from '../utils/hours';
@@ -24,6 +31,18 @@ export function useShifts(userId: string | undefined) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [payInputLoading, setPayInputLoading] = useState(false);
+
+  const patchLocalShift = useCallback((shiftId: string, patch: Partial<Shift>) => {
+    setActiveShift((current) =>
+      current && current.id === shiftId ? applyShiftPatch(current, patch) : current,
+    );
+    setPeriodShifts((current) =>
+      current.map((shift) =>
+        shift.id === shiftId ? applyShiftPatch(shift, patch) : shift,
+      ),
+    );
+  }, []);
 
   const fetchShifts = useCallback(async () => {
     if (!userId) {
@@ -173,6 +192,100 @@ export function useShifts(userId: string | undefined) {
     return { error: null };
   }, [activeShift, fetchShifts]);
 
+  const adjustCountField = useCallback(
+    async (field: CountField, delta: 1 | -1) => {
+      if (!activeShift) {
+        return { error: 'No active shift to update.' };
+      }
+
+      const nextValue = nextCountValue(activeShift[field], delta);
+      if (nextValue == null) {
+        return { error: `${field} cannot go below 0.` };
+      }
+
+      const previousValue = activeShift[field];
+      const patch = { [field]: nextValue } as Partial<Shift>;
+
+      setError(null);
+      setPayInputLoading(true);
+      patchLocalShift(activeShift.id, patch);
+
+      const result = await persistShiftCount(
+        supabase,
+        activeShift.id,
+        field,
+        nextValue,
+      );
+
+      if (result.error) {
+        patchLocalShift(activeShift.id, { [field]: previousValue } as Partial<Shift>);
+        setError(result.error);
+        setPayInputLoading(false);
+        return result;
+      }
+
+      setPayInputLoading(false);
+      return { error: null };
+    },
+    [activeShift, patchLocalShift],
+  );
+
+  const incrementDropCount = useCallback(
+    () => adjustCountField('drop_count', 1),
+    [adjustCountField],
+  );
+
+  const decrementDropCount = useCallback(
+    () => adjustCountField('drop_count', -1),
+    [adjustCountField],
+  );
+
+  const incrementStopCount = useCallback(
+    () => adjustCountField('stop_count', 1),
+    [adjustCountField],
+  );
+
+  const decrementStopCount = useCallback(
+    () => adjustCountField('stop_count', -1),
+    [adjustCountField],
+  );
+
+  const setManualEarningsPence = useCallback(
+    async (nextValue: number) => {
+      if (!activeShift) {
+        return { error: 'No active shift to update.' };
+      }
+
+      if (!Number.isInteger(nextValue) || nextValue < 0) {
+        const message = 'Manual earnings must be a non-negative amount.';
+        setError(message);
+        return { error: message };
+      }
+
+      const previousValue = activeShift.manual_earnings_pence;
+      setError(null);
+      setPayInputLoading(true);
+      patchLocalShift(activeShift.id, { manual_earnings_pence: nextValue });
+
+      const result = await persistManualEarningsPence(
+        supabase,
+        activeShift.id,
+        nextValue,
+      );
+
+      if (result.error) {
+        patchLocalShift(activeShift.id, { manual_earnings_pence: previousValue });
+        setError(result.error);
+        setPayInputLoading(false);
+        return result;
+      }
+
+      setPayInputLoading(false);
+      return { error: null };
+    },
+    [activeShift, patchLocalShift],
+  );
+
   return {
     activeShift,
     periodShifts,
@@ -180,8 +293,14 @@ export function useShifts(userId: string | undefined) {
     loading,
     error,
     actionLoading,
+    payInputLoading,
     startShift,
     endShift,
+    incrementDropCount,
+    decrementDropCount,
+    incrementStopCount,
+    decrementStopCount,
+    setManualEarningsPence,
     refresh: fetchShifts,
   };
 }
