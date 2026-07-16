@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
-import type { Break, EarningsAdjustment, Shift } from '../types';
-import { calculatePay } from '../utils/earnings';
+import type { Shift } from '../types';
 import { PAY_ERR_002 } from './usePayConfiguration';
+import { endActiveShift } from './endActiveShift';
 import {
   filterTodayShifts,
   getStartOfMonth,
 } from '../utils/hours';
+
+export { endActiveShift } from './endActiveShift';
 
 const ACTIVE_SHIFT_ERROR =
   'You already have an active shift. End it before starting a new one.';
@@ -159,69 +161,12 @@ export function useShifts(userId: string | undefined) {
     setActionLoading(true);
     setError(null);
 
-    const endTime = new Date().toISOString();
-    const completedShift: Shift = { ...activeShift, end_time: endTime };
-
-    const [payConfigResult, breaksResult, adjustmentsResult] = await Promise.all([
-      supabase
-        .from('pay_configurations')
-        .select('*')
-        .eq('id', activeShift.pay_configuration_id)
-        .maybeSingle(),
-      supabase.from('breaks').select('*').eq('shift_id', activeShift.id),
-      supabase.from('earnings_adjustments').select('*').eq('shift_id', activeShift.id),
-    ]);
-
-    if (payConfigResult.error) {
-      setActionLoading(false);
-      setError(payConfigResult.error.message);
-      return { error: payConfigResult.error.message };
-    }
-
-    if (!payConfigResult.data) {
-      setActionLoading(false);
-      const message = 'Pay configuration for this shift could not be found.';
-      setError(message);
-      return { error: message };
-    }
-
-    if (breaksResult.error) {
-      setActionLoading(false);
-      setError(breaksResult.error.message);
-      return { error: breaksResult.error.message };
-    }
-
-    if (adjustmentsResult.error) {
-      setActionLoading(false);
-      setError(adjustmentsResult.error.message);
-      return { error: adjustmentsResult.error.message };
-    }
-
-    const breaks = (breaksResult.data ?? []) as Break[];
-    const adjustments = (adjustmentsResult.data ?? []) as EarningsAdjustment[];
-    const payBreakdown = calculatePay(
-      completedShift,
-      payConfigResult.data,
-      breaks,
-      adjustments,
-    );
-
-    const { error: updateError } = await supabase
-      .from('shifts')
-      .update({
-        end_time: endTime,
-        base_pay_pence: payBreakdown.basePayPence,
-        final_earnings_pence: payBreakdown.finalEarningsPence,
-        status: payBreakdown.needsReview ? 'needs_review' : 'completed',
-        updated_at: endTime,
-      })
-      .eq('id', activeShift.id);
-
+    const result = await endActiveShift(activeShift, supabase);
     setActionLoading(false);
 
-    if (updateError) {
-      setError(updateError.message);
-      return { error: updateError.message };
+    if (result.error) {
+      setError(result.error);
+      return result;
     }
 
     await fetchShifts();
