@@ -18,7 +18,12 @@ import { useAuth } from '../context/AuthContext';
 import { useBreaks } from '../hooks/useBreaks';
 import { useEarningsAdjustments } from '../hooks/useEarningsAdjustments';
 import { usePayConfiguration } from '../hooks/usePayConfiguration';
+import {
+  formatManualEarningsInput,
+  parseManualEarningsPounds,
+} from '../hooks/shiftPayInputs';
 import { useShifts } from '../hooks/useShifts';
+import type { PayConfiguration } from '../types';
 import {
   calculateDailyEarningsPence,
   calculateMonthlyEarningsPence,
@@ -42,12 +47,22 @@ export function DashboardScreen() {
     loading,
     error,
     actionLoading,
+    payInputLoading,
     startShift,
     endShift,
+    incrementDropCount,
+    decrementDropCount,
+    incrementStopCount,
+    decrementStopCount,
+    setManualEarningsPence,
     refresh,
   } = useShifts(user?.id);
-  const { configuration, hasActiveConfiguration, loading: payLoading } =
-    usePayConfiguration(user?.id);
+  const {
+    configuration,
+    hasActiveConfiguration,
+    loading: payLoading,
+    fetchConfigurationById,
+  } = usePayConfiguration(user?.id);
   const {
     activeBreak,
     actionLoading: breakActionLoading,
@@ -67,11 +82,53 @@ export function DashboardScreen() {
   const [adjustmentLabel, setAdjustmentLabel] = useState('');
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentType, setAdjustmentType] = useState<'bonus' | 'deduction'>('bonus');
+  const [shiftPayConfig, setShiftPayConfig] = useState<PayConfiguration | null>(null);
+  const [shiftPayConfigError, setShiftPayConfigError] = useState<string | null>(null);
+  const [manualEarningsDraft, setManualEarningsDraft] = useState('');
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(interval);
   }, []);
+
+  // Load the pay model frozen on the active shift — not the current profile config,
+  // which can diverge if the driver changes pay setup mid-shift.
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!activeShift?.pay_configuration_id) {
+      setShiftPayConfig(null);
+      setShiftPayConfigError(null);
+      return;
+    }
+
+    fetchConfigurationById(activeShift.pay_configuration_id).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      if (result.error) {
+        setShiftPayConfig(null);
+        setShiftPayConfigError(result.error);
+        return;
+      }
+      setShiftPayConfig(result.configuration);
+      setShiftPayConfigError(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeShift?.id, activeShift?.pay_configuration_id, fetchConfigurationById]);
+
+  useEffect(() => {
+    if (!activeShift) {
+      setManualEarningsDraft('');
+      return;
+    }
+    // Re-seed when the shift identity or persisted value changes; keystrokes only
+    // touch local draft until Save/blur, so typing is not interrupted.
+    setManualEarningsDraft(formatManualEarningsInput(activeShift.manual_earnings_pence));
+  }, [activeShift, activeShift?.id, activeShift?.manual_earnings_pence]);
 
   const todayHours = calculateTodayHours(periodShifts, now);
   const weekHours = calculateWeekHours(periodShifts, now);
@@ -103,6 +160,26 @@ export function DashboardScreen() {
       setAdjustmentAmount('');
     }
   };
+
+  const handleSaveManualEarnings = async () => {
+    const parsed = parseManualEarningsPounds(manualEarningsDraft);
+    if (parsed.error || parsed.pence == null) {
+      Alert.alert('Invalid amount', parsed.error ?? 'Enter a valid amount.');
+      return;
+    }
+
+    const result = await setManualEarningsPence(parsed.pence);
+    if (!result.error) {
+      setManualEarningsDraft(formatManualEarningsInput(parsed.pence));
+    }
+  };
+
+  const shiftPayModel = shiftPayConfig?.pay_model;
+  const showDropCard = shiftPayModel === 'per_drop';
+  const showStopCard = shiftPayModel === 'per_stop';
+  const showManualCard = shiftPayModel === 'manual';
+  const dropCount = activeShift?.drop_count ?? 0;
+  const stopCount = activeShift?.stop_count ?? 0;
 
   if (loading || payLoading) {
     return (
@@ -182,6 +259,90 @@ export function DashboardScreen() {
             variant="danger"
           />
         </View>
+
+        {activeShift && shiftPayConfigError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{shiftPayConfigError}</Text>
+          </View>
+        ) : null}
+
+        {activeShift && showDropCard ? (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Drops</Text>
+            <Text style={styles.cardHint}>
+              Tap + for each drop. Rate {formatCurrency(shiftPayConfig?.rate_pence ?? 0)} each.
+            </Text>
+            <Text style={styles.countValue}>{dropCount}</Text>
+            <View style={styles.inlineActions}>
+              <Button
+                disabled={dropCount <= 0 || payInputLoading}
+                onPress={decrementDropCount}
+                style={styles.inlineButton}
+                title="−"
+                variant="secondary"
+              />
+              <Button
+                disabled={payInputLoading}
+                onPress={incrementDropCount}
+                style={styles.inlineButton}
+                title="+"
+                variant="secondary"
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {activeShift && showStopCard ? (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Stops</Text>
+            <Text style={styles.cardHint}>
+              Tap + for each stop. Rate {formatCurrency(shiftPayConfig?.rate_pence ?? 0)} each.
+            </Text>
+            <Text style={styles.countValue}>{stopCount}</Text>
+            <View style={styles.inlineActions}>
+              <Button
+                disabled={stopCount <= 0 || payInputLoading}
+                onPress={decrementStopCount}
+                style={styles.inlineButton}
+                title="−"
+                variant="secondary"
+              />
+              <Button
+                disabled={payInputLoading}
+                onPress={incrementStopCount}
+                style={styles.inlineButton}
+                title="+"
+                variant="secondary"
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {activeShift && showManualCard ? (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Manual Earnings</Text>
+            <Text style={styles.cardHint}>
+              Enter the amount for this shift, then save (or leave the field).
+            </Text>
+            <View style={styles.adjustmentForm}>
+              <Input
+                keyboardType="decimal-pad"
+                label="Earnings (£)"
+                onBlur={handleSaveManualEarnings}
+                onChangeText={setManualEarningsDraft}
+                placeholder="0.00"
+                value={manualEarningsDraft}
+              />
+            </View>
+            <Button
+              disabled={payInputLoading}
+              loading={payInputLoading}
+              onPress={handleSaveManualEarnings}
+              title="Save Earnings"
+              variant="secondary"
+            />
+          </View>
+        ) : null}
 
         {activeShift ? (
           <View style={styles.card}>
@@ -346,6 +507,13 @@ const styles = StyleSheet.create({
   content: {
     padding: 24,
     paddingBottom: 40,
+  },
+  countValue: {
+    color: '#0F172A',
+    fontSize: 40,
+    fontWeight: '700',
+    marginTop: 8,
+    textAlign: 'center',
   },
   email: {
     color: '#64748B',
