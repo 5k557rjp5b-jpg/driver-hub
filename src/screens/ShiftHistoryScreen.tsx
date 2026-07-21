@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,13 +9,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { useAuth } from '../context/AuthContext';
 import { useShiftHistory } from '../hooks/useShiftHistory';
 import type { HistoryStackParamList } from '../types';
 import { formatCurrency, getShiftEarningsPence } from '../utils/earnings';
-import { formatDate, formatHours, formatTime, getShiftDurationHours } from '../utils/hours';
+import { formatDate, formatHours, formatShiftStatus, formatTime, getShiftDurationHours } from '../utils/hours';
 
 type Props = NativeStackScreenProps<HistoryStackParamList, 'ShiftHistory'>;
 
@@ -23,6 +24,14 @@ export function ShiftHistoryScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { shifts, loading, error, refresh } = useShiftHistory(user?.id);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Re-fetch whenever History gains focus (tab switch or back from details).
+  // refresh is stable for a given userId, so this does not loop.
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -80,7 +89,7 @@ export function ShiftHistoryScreen({ navigation }: Props) {
                     {formatTime(shift.start_time)} – {formatTime(shift.end_time!)}
                   </Text>
                   {shift.status === 'needs_review' ? (
-                    <Text style={styles.reviewBadge}>Needs review</Text>
+                    <Text style={styles.reviewBadge}>{formatShiftStatus(shift.status)}</Text>
                   ) : null}
                 </View>
                 <View style={styles.rowMeta}>

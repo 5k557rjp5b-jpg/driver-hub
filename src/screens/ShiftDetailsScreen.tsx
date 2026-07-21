@@ -16,7 +16,7 @@ import { usePayConfiguration } from '../hooks/usePayConfiguration';
 import { useShiftDetails } from '../hooks/useShiftHistory';
 import type { HistoryStackParamList } from '../types';
 import { calculatePay, formatCurrency } from '../utils/earnings';
-import { formatDate, formatHours, formatTime, getShiftDurationHours } from '../utils/hours';
+import { formatDate, formatHours, formatShiftStatus, formatTime, getShiftDurationHours } from '../utils/hours';
 
 type Props = NativeStackScreenProps<HistoryStackParamList, 'ShiftDetails'>;
 
@@ -92,7 +92,7 @@ export function ShiftDetailsScreen({ route }: Props) {
             value={shift.end_time ? formatTime(shift.end_time) : 'In progress'}
           />
           <DetailRow label="Total Hours" value={formatHours(hours)} />
-          <DetailRow label="Status" value={shift.status.replace('_', ' ')} />
+          <DetailRow label="Status" value={formatShiftStatus(shift.status)} />
           <DetailRow label="Final Pay" value={formatCurrency(finalEarnings)} />
         </View>
 
