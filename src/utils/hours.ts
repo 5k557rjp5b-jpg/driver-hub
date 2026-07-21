@@ -1,4 +1,4 @@
-import type { Shift } from '../types';
+import type { Shift, ShiftStatus } from '../types';
 
 export function getStartOfToday(): Date {
   const now = new Date();
@@ -101,6 +101,22 @@ export function formatDate(isoString: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/** Display-only label for shift.status — does not change stored enum values. */
+export function formatShiftStatus(status: ShiftStatus): string {
+  switch (status) {
+    case 'active':
+      return 'Active';
+    case 'completed':
+      return 'Completed';
+    case 'needs_review':
+      return 'Needs review';
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
 }
 
 export function isShiftRelevantToday(shift: Shift, now = new Date()): boolean {

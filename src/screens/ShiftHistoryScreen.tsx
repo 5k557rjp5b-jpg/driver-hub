@@ -16,7 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { useShiftHistory } from '../hooks/useShiftHistory';
 import type { HistoryStackParamList } from '../types';
 import { formatCurrency, getShiftEarningsPence } from '../utils/earnings';
-import { formatDate, formatHours, formatTime, getShiftDurationHours } from '../utils/hours';
+import { formatDate, formatHours, formatShiftStatus, formatTime, getShiftDurationHours } from '../utils/hours';
 
 type Props = NativeStackScreenProps<HistoryStackParamList, 'ShiftHistory'>;
 
@@ -89,7 +89,7 @@ export function ShiftHistoryScreen({ navigation }: Props) {
                     {formatTime(shift.start_time)} – {formatTime(shift.end_time!)}
                   </Text>
                   {shift.status === 'needs_review' ? (
-                    <Text style={styles.reviewBadge}>Needs review</Text>
+                    <Text style={styles.reviewBadge}>{formatShiftStatus(shift.status)}</Text>
                   ) : null}
                 </View>
                 <View style={styles.rowMeta}>
