@@ -1,150 +1,186 @@
-import type { Shift, WageSettings } from '../types';
-import {
-  getShiftDurationHours,
-  getShiftHoursOnDate,
-  getStartOfMonth,
-  getStartOfWeek,
-} from './hours';
+// src/utils/earnings.ts
+import type { Shift, PayConfiguration, EarningsAdjustment, Break } from '../types';
+import { getStartOfMonth, getStartOfWeek } from './hours';
 
-export type EarningsSettings = {
-  hourlyRate: number;
-  overtimeRate: number;
-  overtimeThresholdHours: number;
-  currency: string;
-  bonus?: number;
+/**
+ * Round-half-up to the nearest penny. Applied exactly once, at the point
+ * base pay + bonuses - deductions are combined. Never round intermediate
+ * values (e.g. hourlyRate * fractionalHours).
+ * PE-002 / PE-004 in Pay Engine Spec v1.0.
+ */
+function roundHalfUpPence(rawPence: number): number {
+  return Math.floor(rawPence + 0.5);
+}
+
+/**
+ * Working time in hours for Hourly pay model.
+ * = (shiftEnd - shiftStart) - sum(unpaid break durations)
+ * Paid breaks are included in worked time (PE-005 / PE-006).
+ */
+export function getWorkingHours(shift: Shift, breaks: Break[]): number {
+  if (!shift.end_time) return 0;
+
+  const startMs = new Date(shift.start_time).getTime();
+  const endMs = new Date(shift.end_time).getTime();
+  const totalMs = endMs - startMs;
+
+  const unpaidBreakMs = breaks
+    .filter((b) => !b.is_paid && b.end_time)
+    .reduce((sum, b) => {
+      const bStart = new Date(b.start_time).getTime();
+      const bEnd = new Date(b.end_time as string).getTime();
+      return sum + (bEnd - bStart);
+    }, 0);
+
+  const workingMs = totalMs - unpaidBreakMs;
+  return workingMs / (1000 * 60 * 60);
+}
+
+/**
+ * basePay per pay model, in integer pence. PE-001–PE-006, §5.
+ */
+export function calculateBasePayPence(
+  shift: Shift,
+  payConfig: PayConfiguration,
+  breaks: Break[],
+): number {
+  switch (payConfig.pay_model) {
+    case 'hourly': {
+      const rate = payConfig.rate_pence ?? 0;
+      const hours = getWorkingHours(shift, breaks);
+      return rate * hours;
+    }
+    case 'fixed_shift': {
+      return payConfig.rate_pence ?? 0;
+    }
+    case 'per_drop': {
+      const rate = payConfig.rate_pence ?? 0;
+      return (shift.drop_count ?? 0) * rate;
+    }
+    case 'per_stop': {
+      const rate = payConfig.rate_pence ?? 0;
+      return (shift.stop_count ?? 0) * rate;
+    }
+    case 'manual': {
+      return shift.manual_earnings_pence ?? 0;
+    }
+  }
+}
+
+export type PayBreakdown = {
+  basePayPence: number;
+  bonusesPence: number;
+  deductionsPence: number;
+  finalEarningsPence: number;
+  needsReview: boolean;
 };
 
-export function toEarningsSettings(settings: WageSettings): EarningsSettings {
+/**
+ * Pure function: given a shift, its pay configuration, its breaks and its
+ * adjustments, returns the full earnings breakdown.
+ * finalEarnings = round(basePay + bonuses - deductions), floored at 0.
+ * PE-003 / PE-004.
+ */
+export function calculatePay(
+  shift: Shift,
+  payConfig: PayConfiguration,
+  breaks: Break[],
+  adjustments: EarningsAdjustment[],
+): PayBreakdown {
+  const basePayPence = calculateBasePayPence(shift, payConfig, breaks);
+
+  const bonusesPence = adjustments
+    .filter((a) => a.type === 'bonus')
+    .reduce((sum, a) => sum + a.amount_pence, 0);
+
+  const deductionsPence = adjustments
+    .filter((a) => a.type === 'deduction')
+    .reduce((sum, a) => sum + a.amount_pence, 0);
+
+  const rawFinal = basePayPence + bonusesPence - deductionsPence;
+  const rounded = roundHalfUpPence(rawFinal);
+  const needsReview = rawFinal < 0;
+  const finalEarningsPence = Math.max(0, rounded);
+
   return {
-    hourlyRate: Number(settings.hourly_rate),
-    overtimeRate: Number(settings.overtime_rate),
-    overtimeThresholdHours: Number(settings.overtime_threshold_hours),
-    currency: settings.currency,
+    basePayPence: Math.round(basePayPence),
+    bonusesPence,
+    deductionsPence,
+    finalEarningsPence,
+    needsReview,
   };
 }
 
-export function calculateShiftEarnings(
-  hours: number,
-  settings: EarningsSettings,
-  bonus = 0,
-): number {
-  const { hourlyRate, overtimeRate, overtimeThresholdHours } = settings;
-
-  if (hours <= 0) {
-    return bonus;
-  }
-
-  if (hours <= overtimeThresholdHours) {
-    return hours * hourlyRate + bonus;
-  }
-
-  const regularHours = overtimeThresholdHours;
-  const overtimeHours = hours - overtimeThresholdHours;
-  return regularHours * hourlyRate + overtimeHours * overtimeRate + bonus;
+export function formatCurrency(pence: number, currency = 'GBP'): string {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(pence / 100);
 }
 
-function getDailyHoursMap(
+export function getShiftEarningsPence(shift: Shift): number {
+  if (shift.final_earnings_pence != null) {
+    return shift.final_earnings_pence;
+  }
+  return 0;
+}
+
+function shiftOverlapsPeriod(
+  shift: Shift,
+  periodStart: Date,
+  periodEnd: Date,
+  now = new Date(),
+): boolean {
+  const shiftStart = new Date(shift.start_time).getTime();
+  const shiftEnd = shift.end_time ? new Date(shift.end_time).getTime() : now.getTime();
+  return shiftEnd > periodStart.getTime() && shiftStart < periodEnd.getTime();
+}
+
+export function calculatePeriodEarningsPence(
   shifts: Shift[],
   periodStart: Date,
   periodEnd: Date,
   now = new Date(),
-): Map<string, number> {
-  const dailyHours = new Map<string, number>();
-  const cursor = new Date(periodStart);
-
-  while (cursor < periodEnd) {
-    const key = cursor.toDateString();
-    dailyHours.set(key, 0);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  for (const shift of shifts) {
-    const dayCursor = new Date(periodStart);
-    while (dayCursor < periodEnd) {
-      const hoursOnDay = getShiftHoursOnDate(shift, dayCursor, now);
-      if (hoursOnDay > 0) {
-        const key = dayCursor.toDateString();
-        dailyHours.set(key, (dailyHours.get(key) ?? 0) + hoursOnDay);
-      }
-      dayCursor.setDate(dayCursor.getDate() + 1);
+): number {
+  return shifts.reduce((total, shift) => {
+    if (shift.status === 'active' || shift.final_earnings_pence == null) {
+      return total;
     }
-  }
-
-  return dailyHours;
+    if (!shiftOverlapsPeriod(shift, periodStart, periodEnd, now)) {
+      return total;
+    }
+    return total + shift.final_earnings_pence;
+  }, 0);
 }
 
-export function calculatePeriodEarnings(
+export function calculateDailyEarningsPence(
   shifts: Shift[],
-  settings: EarningsSettings,
-  periodStart: Date,
-  periodEnd: Date,
-  now = new Date(),
-): number {
-  const dailyHours = getDailyHoursMap(shifts, periodStart, periodEnd, now);
-
-  let total = 0;
-  for (const hours of dailyHours.values()) {
-    total += calculateShiftEarnings(hours, settings);
-  }
-
-  return total;
-}
-
-export function calculateDailyEarnings(
-  shifts: Shift[],
-  settings: EarningsSettings,
   date = new Date(),
   now = new Date(),
 ): number {
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayEnd.getDate() + 1);
-  return calculatePeriodEarnings(shifts, settings, dayStart, dayEnd, now);
+  return calculatePeriodEarningsPence(shifts, dayStart, dayEnd, now);
 }
 
-export function calculateWeeklyEarnings(
-  shifts: Shift[],
-  settings: EarningsSettings,
-  now = new Date(),
-): number {
+export function calculateWeeklyEarningsPence(shifts: Shift[], now = new Date()): number {
   const startOfWeek = getStartOfWeek(now);
   const endOfWeek = new Date(startOfWeek);
   endOfWeek.setDate(endOfWeek.getDate() + 7);
-  return calculatePeriodEarnings(shifts, settings, startOfWeek, endOfWeek, now);
+  return calculatePeriodEarningsPence(shifts, startOfWeek, endOfWeek, now);
 }
 
-export function calculateMonthlyEarnings(
-  shifts: Shift[],
-  settings: EarningsSettings,
-  now = new Date(),
-): number {
+export function calculateMonthlyEarningsPence(shifts: Shift[], now = new Date()): number {
   const startOfMonth = getStartOfMonth(now);
   const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 1);
-  return calculatePeriodEarnings(shifts, settings, startOfMonth, endOfMonth, now);
+  return calculatePeriodEarningsPence(shifts, startOfMonth, endOfMonth, now);
 }
 
-export function calculateShiftEarningsForShift(
-  shift: Shift,
-  settings: EarningsSettings,
-  now = new Date(),
-  bonus = 0,
-): number {
-  const hours = getShiftDurationHours(shift, now);
-  return calculateShiftEarnings(hours, settings, bonus);
-}
+export const RATE_BASED_PAY_MODELS = ['hourly', 'fixed_shift', 'per_drop', 'per_stop'] as const;
 
-export function formatCurrency(amount: number, currency = 'GBP'): string {
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+export function isRateBasedPayModel(payModel: PayConfiguration['pay_model']): boolean {
+  return (RATE_BASED_PAY_MODELS as readonly string[]).includes(payModel);
 }
-
-export const DEFAULT_WAGE_SETTINGS: Omit<WageSettings, 'user_id' | 'updated_at'> = {
-  hourly_rate: 12,
-  overtime_rate: 18,
-  overtime_threshold_hours: 8,
-  currency: 'GBP',
-};

@@ -13,13 +13,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { useAuth } from '../context/AuthContext';
 import { useShiftHistory } from '../hooks/useShiftHistory';
-import { useWageSettings } from '../hooks/useWageSettings';
 import type { HistoryStackParamList } from '../types';
-import {
-  calculateShiftEarningsForShift,
-  formatCurrency,
-  toEarningsSettings,
-} from '../utils/earnings';
+import { formatCurrency, getShiftEarningsPence } from '../utils/earnings';
 import { formatDate, formatHours, formatTime, getShiftDurationHours } from '../utils/hours';
 
 type Props = NativeStackScreenProps<HistoryStackParamList, 'ShiftHistory'>;
@@ -27,11 +22,7 @@ type Props = NativeStackScreenProps<HistoryStackParamList, 'ShiftHistory'>;
 export function ShiftHistoryScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { shifts, loading, error, refresh } = useShiftHistory(user?.id);
-  const { settings, loading: settingsLoading } = useWageSettings(user?.id);
   const [refreshing, setRefreshing] = useState(false);
-
-  const earningsSettings = settings ? toEarningsSettings(settings) : null;
-  const currency = earningsSettings?.currency ?? 'GBP';
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -39,7 +30,7 @@ export function ShiftHistoryScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  if (loading || settingsLoading) {
+  if (loading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color="#1D4ED8" size="large" />
@@ -75,9 +66,7 @@ export function ShiftHistoryScreen({ navigation }: Props) {
         ) : (
           shifts.map((shift) => {
             const hours = getShiftDurationHours(shift);
-            const earnings = earningsSettings
-              ? calculateShiftEarningsForShift(shift, earningsSettings)
-              : 0;
+            const earnings = getShiftEarningsPence(shift);
 
             return (
               <Pressable
@@ -90,12 +79,13 @@ export function ShiftHistoryScreen({ navigation }: Props) {
                   <Text style={styles.rowTime}>
                     {formatTime(shift.start_time)} – {formatTime(shift.end_time!)}
                   </Text>
+                  {shift.status === 'needs_review' ? (
+                    <Text style={styles.reviewBadge}>Needs review</Text>
+                  ) : null}
                 </View>
                 <View style={styles.rowMeta}>
                   <Text style={styles.rowHours}>{formatHours(hours)}</Text>
-                  <Text style={styles.rowEarnings}>
-                    {formatCurrency(earnings, currency)}
-                  </Text>
+                  <Text style={styles.rowEarnings}>{formatCurrency(earnings)}</Text>
                 </View>
               </Pressable>
             );
@@ -158,6 +148,12 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 20,
+  },
+  reviewBadge: {
+    color: '#B45309',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
   },
   row: {
     alignItems: 'center',

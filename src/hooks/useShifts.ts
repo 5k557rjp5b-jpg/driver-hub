@@ -2,10 +2,21 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
 import type { Shift } from '../types';
+import { PAY_ERR_002 } from './usePayConfiguration';
+import { endActiveShift } from './endActiveShift';
+import {
+  applyShiftPatch,
+  nextCountValue,
+  persistManualEarningsPence,
+  persistShiftCount,
+  type CountField,
+} from './shiftPayInputs';
 import {
   filterTodayShifts,
   getStartOfMonth,
 } from '../utils/hours';
+
+export { endActiveShift } from './endActiveShift';
 
 const ACTIVE_SHIFT_ERROR =
   'You already have an active shift. End it before starting a new one.';
@@ -20,6 +31,18 @@ export function useShifts(userId: string | undefined) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [payInputLoading, setPayInputLoading] = useState(false);
+
+  const patchLocalShift = useCallback((shiftId: string, patch: Partial<Shift>) => {
+    setActiveShift((current) =>
+      current && current.id === shiftId ? applyShiftPatch(current, patch) : current,
+    );
+    setPeriodShifts((current) =>
+      current.map((shift) =>
+        shift.id === shiftId ? applyShiftPatch(shift, patch) : shift,
+      ),
+    );
+  }, []);
 
   const fetchShifts = useCallback(async () => {
     if (!userId) {
@@ -86,6 +109,25 @@ export function useShifts(userId: string | undefined) {
     setActionLoading(true);
     setError(null);
 
+    const { data: payConfig, error: payConfigError } = await supabase
+      .from('pay_configurations')
+      .select('id')
+      .eq('user_id', userId)
+      .is('superseded_at', null)
+      .maybeSingle();
+
+    if (payConfigError) {
+      setActionLoading(false);
+      setError(payConfigError.message);
+      return { error: payConfigError.message };
+    }
+
+    if (!payConfig) {
+      setActionLoading(false);
+      setError(PAY_ERR_002);
+      return { error: PAY_ERR_002 };
+    }
+
     const { data: existingActive, error: checkError } = await supabase
       .from('shifts')
       .select('id')
@@ -109,7 +151,10 @@ export function useShifts(userId: string | undefined) {
 
     const { error: insertError } = await supabase.from('shifts').insert({
       user_id: userId,
+      pay_configuration_id: payConfig.id,
       start_time: new Date().toISOString(),
+      status: 'active',
+      notes: '',
     });
 
     if (insertError) {
@@ -135,21 +180,111 @@ export function useShifts(userId: string | undefined) {
     setActionLoading(true);
     setError(null);
 
-    const { error: updateError } = await supabase
-      .from('shifts')
-      .update({ end_time: new Date().toISOString() })
-      .eq('id', activeShift.id);
-
+    const result = await endActiveShift(activeShift, supabase);
     setActionLoading(false);
 
-    if (updateError) {
-      setError(updateError.message);
-      return { error: updateError.message };
+    if (result.error) {
+      setError(result.error);
+      return result;
     }
 
     await fetchShifts();
     return { error: null };
   }, [activeShift, fetchShifts]);
+
+  const adjustCountField = useCallback(
+    async (field: CountField, delta: 1 | -1) => {
+      if (!activeShift) {
+        return { error: 'No active shift to update.' };
+      }
+
+      const nextValue = nextCountValue(activeShift[field], delta);
+      if (nextValue == null) {
+        return { error: `${field} cannot go below 0.` };
+      }
+
+      const previousValue = activeShift[field];
+      const patch = { [field]: nextValue } as Partial<Shift>;
+
+      setError(null);
+      setPayInputLoading(true);
+      patchLocalShift(activeShift.id, patch);
+
+      const result = await persistShiftCount(
+        supabase,
+        activeShift.id,
+        field,
+        nextValue,
+      );
+
+      if (result.error) {
+        patchLocalShift(activeShift.id, { [field]: previousValue } as Partial<Shift>);
+        setError(result.error);
+        setPayInputLoading(false);
+        return result;
+      }
+
+      setPayInputLoading(false);
+      return { error: null };
+    },
+    [activeShift, patchLocalShift],
+  );
+
+  const incrementDropCount = useCallback(
+    () => adjustCountField('drop_count', 1),
+    [adjustCountField],
+  );
+
+  const decrementDropCount = useCallback(
+    () => adjustCountField('drop_count', -1),
+    [adjustCountField],
+  );
+
+  const incrementStopCount = useCallback(
+    () => adjustCountField('stop_count', 1),
+    [adjustCountField],
+  );
+
+  const decrementStopCount = useCallback(
+    () => adjustCountField('stop_count', -1),
+    [adjustCountField],
+  );
+
+  const setManualEarningsPence = useCallback(
+    async (nextValue: number) => {
+      if (!activeShift) {
+        return { error: 'No active shift to update.' };
+      }
+
+      if (!Number.isInteger(nextValue) || nextValue < 0) {
+        const message = 'Manual earnings must be a non-negative amount.';
+        setError(message);
+        return { error: message };
+      }
+
+      const previousValue = activeShift.manual_earnings_pence;
+      setError(null);
+      setPayInputLoading(true);
+      patchLocalShift(activeShift.id, { manual_earnings_pence: nextValue });
+
+      const result = await persistManualEarningsPence(
+        supabase,
+        activeShift.id,
+        nextValue,
+      );
+
+      if (result.error) {
+        patchLocalShift(activeShift.id, { manual_earnings_pence: previousValue });
+        setError(result.error);
+        setPayInputLoading(false);
+        return result;
+      }
+
+      setPayInputLoading(false);
+      return { error: null };
+    },
+    [activeShift, patchLocalShift],
+  );
 
   return {
     activeShift,
@@ -158,8 +293,14 @@ export function useShifts(userId: string | undefined) {
     loading,
     error,
     actionLoading,
+    payInputLoading,
     startShift,
     endShift,
+    incrementDropCount,
+    decrementDropCount,
+    incrementStopCount,
+    decrementStopCount,
+    setManualEarningsPence,
     refresh: fetchShifts,
   };
 }
