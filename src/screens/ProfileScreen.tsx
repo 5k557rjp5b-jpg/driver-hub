@@ -30,6 +30,26 @@ const PAY_MODEL_OPTIONS: { value: PayModel; label: string }[] = [
   { value: 'manual', label: 'Manual' },
 ];
 
+/** Display-only rate field label — Manual has no rate input. */
+function rateFieldLabel(payModel: PayModel): string {
+  switch (payModel) {
+    case 'hourly':
+      return 'Hourly rate (£)';
+    case 'fixed_shift':
+      return 'Fixed shift amount (£)';
+    case 'per_drop':
+      return 'Rate per drop (£)';
+    case 'per_stop':
+      return 'Rate per stop (£)';
+    case 'manual':
+      return 'Rate (£)';
+    default: {
+      const _exhaustive: never = payModel;
+      return _exhaustive;
+    }
+  }
+}
+
 export function ProfileScreen() {
   const { user, signOut } = useAuth();
   const { configuration, loading, saving, error, saveConfiguration } =
@@ -145,7 +165,7 @@ export function ProfileScreen() {
             {isRateBasedPayModel(payModel) ? (
               <Input
                 keyboardType="decimal-pad"
-                label="Rate (£)"
+                label={rateFieldLabel(payModel)}
                 onChangeText={setRatePounds}
                 placeholder="16.50"
                 value={ratePounds}
