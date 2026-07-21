@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
 import type { Shift } from '../types';
@@ -7,15 +7,25 @@ export function useShiftHistory(userId: string | undefined) {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    hasLoadedRef.current = false;
+  }, [userId]);
 
   const fetchHistory = useCallback(async () => {
     if (!userId) {
       setShifts([]);
       setLoading(false);
+      hasLoadedRef.current = false;
       return;
     }
 
-    setLoading(true);
+    // Full-screen spinner only on the first load for this user — focus refetches
+    // keep the existing list visible to avoid a blank flash on every tab visit.
+    if (!hasLoadedRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     const { data, error: fetchError } = await supabase
@@ -32,12 +42,9 @@ export function useShiftHistory(userId: string | undefined) {
       setShifts(data ?? []);
     }
 
+    hasLoadedRef.current = true;
     setLoading(false);
   }, [userId]);
-
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
 
   return {
     shifts,

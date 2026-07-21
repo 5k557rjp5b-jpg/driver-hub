@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { useAuth } from '../context/AuthContext';
@@ -23,6 +24,14 @@ export function ShiftHistoryScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { shifts, loading, error, refresh } = useShiftHistory(user?.id);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Re-fetch whenever History gains focus (tab switch or back from details).
+  // refresh is stable for a given userId, so this does not loop.
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
