@@ -51,7 +51,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Clears remote session when possible and removes the persisted local
+    // session via the configured auth storage adapter (SecureStore / AsyncStorage).
     await supabase.auth.signOut();
+    // Ensure RootNavigator flips to Auth even if SIGNED_OUT is delayed.
+    setSession(null);
   }, []);
 
   const value = useMemo(
