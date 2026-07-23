@@ -14,15 +14,26 @@ function roundHalfUpPence(rawPence: number): number {
 
 /**
  * Working time in hours for Hourly pay model.
- * = (shiftEnd - shiftStart) - sum(unpaid break durations)
- * Paid breaks are included in worked time (PE-005 / PE-006).
+ * = (shiftEnd - shiftStart) - sum(deductible break durations)
+ *
+ * When the shift's pay configuration has paid_breaks_enabled, break time
+ * counts as worked (PE-005 / PE-006) — do not deduct. Otherwise subtract
+ * completed unpaid breaks (is_paid === false).
  */
-export function getWorkingHours(shift: Shift, breaks: Break[]): number {
+export function getWorkingHours(
+  shift: Shift,
+  breaks: Break[],
+  paidBreaksEnabled = false,
+): number {
   if (!shift.end_time) return 0;
 
   const startMs = new Date(shift.start_time).getTime();
   const endMs = new Date(shift.end_time).getTime();
   const totalMs = endMs - startMs;
+
+  if (paidBreaksEnabled) {
+    return totalMs / (1000 * 60 * 60);
+  }
 
   const unpaidBreakMs = breaks
     .filter((b) => !b.is_paid && b.end_time)
@@ -47,7 +58,7 @@ export function calculateBasePayPence(
   switch (payConfig.pay_model) {
     case 'hourly': {
       const rate = payConfig.rate_pence ?? 0;
-      const hours = getWorkingHours(shift, breaks);
+      const hours = getWorkingHours(shift, breaks, payConfig.paid_breaks_enabled);
       return rate * hours;
     }
     case 'fixed_shift': {
