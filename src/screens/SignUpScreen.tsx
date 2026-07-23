@@ -13,6 +13,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { useAuth } from '../context/AuthContext';
 import type { AuthStackParamList } from '../types';
+import { isValidEmail } from '../utils/email';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'SignUp'>;
 
@@ -28,6 +29,11 @@ export function SignUpScreen({ navigation }: Props) {
   const handleSignUp = async () => {
     if (!email.trim() || !password) {
       setError('Please enter your email and password.');
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address.');
       return;
     }
 

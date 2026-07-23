@@ -14,6 +14,7 @@ import { Input } from '../components/Input';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { AuthStackParamList } from '../types';
+import { isValidEmail } from '../utils/email';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
@@ -27,6 +28,11 @@ export function LoginScreen({ navigation }: Props) {
   const handleLogin = async () => {
     if (!email.trim() || !password) {
       setError('Please enter your email and password.');
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address.');
       return;
     }
 
