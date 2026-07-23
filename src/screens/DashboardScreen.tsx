@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -82,9 +81,11 @@ export function DashboardScreen() {
   const [adjustmentLabel, setAdjustmentLabel] = useState('');
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentType, setAdjustmentType] = useState<'bonus' | 'deduction'>('bonus');
+  const [adjustmentAmountError, setAdjustmentAmountError] = useState<string | null>(null);
   const [shiftPayConfig, setShiftPayConfig] = useState<PayConfiguration | null>(null);
   const [shiftPayConfigError, setShiftPayConfigError] = useState<string | null>(null);
   const [manualEarningsDraft, setManualEarningsDraft] = useState('');
+  const [manualEarningsError, setManualEarningsError] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30_000);
@@ -123,11 +124,13 @@ export function DashboardScreen() {
   useEffect(() => {
     if (!activeShift) {
       setManualEarningsDraft('');
+      setManualEarningsError(null);
       return;
     }
     // Re-seed when the shift identity or persisted value changes; keystrokes only
     // touch local draft until Save/blur, so typing is not interrupted.
     setManualEarningsDraft(formatManualEarningsInput(activeShift.manual_earnings_pence));
+    setManualEarningsError(null);
   }, [activeShift, activeShift?.id, activeShift?.manual_earnings_pence]);
 
   const todayHours = calculateTodayHours(periodShifts, now);
@@ -145,10 +148,11 @@ export function DashboardScreen() {
   const handleAddAdjustment = async () => {
     const pounds = parseFloat(adjustmentAmount);
     if (Number.isNaN(pounds) || pounds <= 0) {
-      Alert.alert('Invalid amount', 'Enter an amount greater than £0.00.');
+      setAdjustmentAmountError('Enter an amount greater than £0.00.');
       return;
     }
 
+    setAdjustmentAmountError(null);
     const result = await addAdjustment({
       type: adjustmentType,
       label: adjustmentLabel,
@@ -158,19 +162,22 @@ export function DashboardScreen() {
     if (!result.error) {
       setAdjustmentLabel('');
       setAdjustmentAmount('');
+      setAdjustmentAmountError(null);
     }
   };
 
   const handleSaveManualEarnings = async () => {
     const parsed = parseManualEarningsPounds(manualEarningsDraft);
     if (parsed.error || parsed.pence == null) {
-      Alert.alert('Invalid amount', parsed.error ?? 'Enter a valid amount.');
+      setManualEarningsError(parsed.error ?? 'Enter a valid amount.');
       return;
     }
 
+    setManualEarningsError(null);
     const result = await setManualEarningsPence(parsed.pence);
     if (!result.error) {
       setManualEarningsDraft(formatManualEarningsInput(parsed.pence));
+      setManualEarningsError(null);
     }
   };
 
@@ -329,11 +336,17 @@ export function DashboardScreen() {
                 keyboardType="decimal-pad"
                 label="Earnings (£)"
                 onBlur={handleSaveManualEarnings}
-                onChangeText={setManualEarningsDraft}
+                onChangeText={(value) => {
+                  setManualEarningsDraft(value);
+                  setManualEarningsError(null);
+                }}
                 placeholder="0.00"
                 value={manualEarningsDraft}
               />
             </View>
+            {manualEarningsError ? (
+              <Text style={styles.inlineError}>{manualEarningsError}</Text>
+            ) : null}
             <Button
               disabled={payInputLoading}
               loading={payInputLoading}
@@ -417,11 +430,17 @@ export function DashboardScreen() {
               <Input
                 keyboardType="decimal-pad"
                 label="Amount (£)"
-                onChangeText={setAdjustmentAmount}
+                onChangeText={(value) => {
+                  setAdjustmentAmount(value);
+                  setAdjustmentAmountError(null);
+                }}
                 placeholder="10.00"
                 value={adjustmentAmount}
               />
             </View>
+            {adjustmentAmountError ? (
+              <Text style={styles.inlineError}>{adjustmentAmountError}</Text>
+            ) : null}
             {adjustmentError ? <Text style={styles.inlineError}>{adjustmentError}</Text> : null}
             <Button
               loading={adjustmentActionLoading}

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -14,6 +15,7 @@ import { Input } from '../components/Input';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { AuthStackParamList } from '../types';
+import { isValidEmail } from '../utils/email';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
@@ -23,10 +25,16 @@ export function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
       setError('Please enter your email and password.');
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address.');
       return;
     }
 
@@ -65,17 +73,25 @@ export function LoginScreen({ navigation }: Props) {
         <View style={styles.form}>
           <Input
             autoComplete="email"
+            blurOnSubmit={false}
             keyboardType="email-address"
             label="Email"
             onChangeText={setEmail}
+            onSubmitEditing={() => passwordRef.current?.focus()}
             placeholder="driver@example.com"
+            returnKeyType="next"
             value={email}
           />
           <Input
+            ref={passwordRef}
             autoComplete="password"
             label="Password"
             onChangeText={setPassword}
+            onSubmitEditing={() => {
+              void handleLogin();
+            }}
             placeholder="Your password"
+            returnKeyType="go"
             secureTextEntry
             value={password}
           />
