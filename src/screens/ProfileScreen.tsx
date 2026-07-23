@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import {
   validatePayConfiguration,
 } from '../hooks/usePayConfiguration';
 import type { PayModel } from '../types';
+import { confirmAction } from '../utils/confirmAction';
 import { isRateBasedPayModel } from '../utils/earnings';
 
 const PAY_MODEL_OPTIONS: { value: PayModel; label: string }[] = [
@@ -107,11 +107,17 @@ export function ProfileScreen() {
     }
   };
 
-  const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: signOut },
-    ]);
+  const handleSignOut = async () => {
+    const confirmed = await confirmAction({
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out?',
+      confirmLabel: 'Sign Out',
+      destructive: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    await signOut();
   };
 
   if (loading) {
