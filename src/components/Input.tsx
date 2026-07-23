@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { StyleSheet, Text, TextInput, Platform, type TextInputProps, View } from 'react-native';
 
 type InputProps = TextInputProps & {
@@ -5,7 +6,10 @@ type InputProps = TextInputProps & {
   error?: string;
 };
 
-export function Input({ label, error, style, keyboardType, ...props }: InputProps) {
+export const Input = forwardRef<TextInput, InputProps>(function Input(
+  { label, error, style, keyboardType, ...props },
+  ref,
+) {
   // react-native-web maps keyboardType="email-address" → type="email", which can
   // surface browser-native format rejection. Prefer inputMode for mobile keyboards
   // while keeping type="text" on web so multi-part TLDs (.co.uk) are not blocked.
@@ -18,6 +22,7 @@ export function Input({ label, error, style, keyboardType, ...props }: InputProp
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        ref={ref}
         autoCapitalize="none"
         keyboardType={keyboardType}
         placeholderTextColor="#94A3B8"
@@ -28,7 +33,7 @@ export function Input({ label, error, style, keyboardType, ...props }: InputProp
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

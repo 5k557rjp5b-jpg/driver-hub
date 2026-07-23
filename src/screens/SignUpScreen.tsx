@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -25,6 +26,8 @@ export function SignUpScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmPasswordRef = useRef<TextInput>(null);
 
   const handleSignUp = async () => {
     if (!email.trim() || !password) {
@@ -76,25 +79,37 @@ export function SignUpScreen({ navigation }: Props) {
         <View style={styles.form}>
           <Input
             autoComplete="email"
+            blurOnSubmit={false}
             keyboardType="email-address"
             label="Email"
             onChangeText={setEmail}
+            onSubmitEditing={() => passwordRef.current?.focus()}
             placeholder="driver@example.com"
+            returnKeyType="next"
             value={email}
           />
           <Input
+            ref={passwordRef}
             autoComplete="password-new"
+            blurOnSubmit={false}
             label="Password"
             onChangeText={setPassword}
+            onSubmitEditing={() => confirmPasswordRef.current?.focus()}
             placeholder="At least 6 characters"
+            returnKeyType="next"
             secureTextEntry
             value={password}
           />
           <Input
+            ref={confirmPasswordRef}
             autoComplete="password-new"
             label="Confirm Password"
             onChangeText={setConfirmPassword}
+            onSubmitEditing={() => {
+              void handleSignUp();
+            }}
             placeholder="Repeat your password"
+            returnKeyType="go"
             secureTextEntry
             value={confirmPassword}
           />
