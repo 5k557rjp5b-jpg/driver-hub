@@ -109,6 +109,66 @@ describe('calculatePay', () => {
     expect(result.finalEarningsPence).toBe(14025);
   });
 
+  it('hourly paid_breaks_enabled ON: break time counts even if break.is_paid is false', () => {
+    // Repro: £60/hr, 3 min shift, 1 min break → £3.00 when paid breaks enabled
+    const result = calculatePay(
+      makeShift({
+        start_time: '2026-07-10T08:00:00.000Z',
+        end_time: '2026-07-10T08:03:00.000Z',
+      }),
+      makeConfig({ rate_pence: 6000, paid_breaks_enabled: true }),
+      [
+        makeBreak({
+          start_time: '2026-07-10T08:01:00.000Z',
+          end_time: '2026-07-10T08:02:00.000Z',
+          is_paid: false,
+        }),
+      ],
+      [],
+    );
+    expect(result.basePayPence).toBe(300);
+    expect(result.finalEarningsPence).toBe(300);
+  });
+
+  it('hourly paid_breaks_enabled OFF: unpaid break time is deducted', () => {
+    // Control: £60/hr, 3 min shift, 1 min unpaid break → £2.00
+    const result = calculatePay(
+      makeShift({
+        start_time: '2026-07-10T08:00:00.000Z',
+        end_time: '2026-07-10T08:03:00.000Z',
+      }),
+      makeConfig({ rate_pence: 6000, paid_breaks_enabled: false }),
+      [
+        makeBreak({
+          start_time: '2026-07-10T08:01:00.000Z',
+          end_time: '2026-07-10T08:02:00.000Z',
+          is_paid: false,
+        }),
+      ],
+      [],
+    );
+    expect(result.basePayPence).toBe(200);
+    expect(result.finalEarningsPence).toBe(200);
+  });
+
+  it('non-hourly models ignore breaks even when unpaid breaks exist', () => {
+    const breakRow = makeBreak({ is_paid: false });
+    const fixed = calculatePay(
+      makeShift(),
+      makeConfig({ pay_model: 'fixed_shift', rate_pence: 18000, paid_breaks_enabled: false }),
+      [breakRow],
+      [],
+    );
+    const perDrop = calculatePay(
+      makeShift({ drop_count: 10 }),
+      makeConfig({ pay_model: 'per_drop', rate_pence: 100, paid_breaks_enabled: true }),
+      [breakRow],
+      [],
+    );
+    expect(fixed.finalEarningsPence).toBe(18000);
+    expect(perDrop.finalEarningsPence).toBe(1000);
+  });
+
   it('bonus + deduction: £156.25 base, +£10 bonus, -£8 fuel → 15825p', () => {
     const result = calculatePay(
       makeShift({ drop_count: 125 }),

@@ -62,19 +62,6 @@ export function DashboardScreen() {
     loading: payLoading,
     fetchConfigurationById,
   } = usePayConfiguration(user?.id);
-  const {
-    activeBreak,
-    actionLoading: breakActionLoading,
-    startBreak,
-    endBreak,
-    error: breakError,
-  } = useBreaks(activeShift?.id, configuration?.paid_breaks_enabled ?? false);
-  const {
-    adjustments,
-    actionLoading: adjustmentActionLoading,
-    addAdjustment,
-    error: adjustmentError,
-  } = useEarningsAdjustments(activeShift?.id);
 
   const [now, setNow] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
@@ -86,6 +73,25 @@ export function DashboardScreen() {
   const [shiftPayConfigError, setShiftPayConfigError] = useState<string | null>(null);
   const [manualEarningsDraft, setManualEarningsDraft] = useState('');
   const [manualEarningsError, setManualEarningsError] = useState<string | null>(null);
+
+  const {
+    activeBreak,
+    actionLoading: breakActionLoading,
+    startBreak,
+    endBreak,
+    error: breakError,
+  } = useBreaks(
+    activeShift?.id,
+    // Prefer the shift's frozen pay config (same source endShift uses) so the
+    // break is_paid stamp matches paid_breaks_enabled for this shift.
+    shiftPayConfig?.paid_breaks_enabled ?? configuration?.paid_breaks_enabled ?? false,
+  );
+  const {
+    adjustments,
+    actionLoading: adjustmentActionLoading,
+    addAdjustment,
+    error: adjustmentError,
+  } = useEarningsAdjustments(activeShift?.id);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30_000);
