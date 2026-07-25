@@ -1,4 +1,4 @@
-# Driver Hub
+# Nearside
 
 A React Native app for professional drivers to sign in, track shifts, view earnings, and manage wage settings.
 

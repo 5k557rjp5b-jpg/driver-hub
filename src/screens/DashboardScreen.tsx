@@ -209,7 +209,7 @@ export function DashboardScreen() {
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} />}
       >
         <View style={styles.header}>
-          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.badge}>Nearside</Text>
           <Text style={styles.title}>Dashboard</Text>
           <Text style={styles.email}>{user?.email}</Text>
         </View>

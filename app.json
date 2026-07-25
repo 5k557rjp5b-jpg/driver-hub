@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "Driver Hub",
-    "slug": "driver-hub",
+    "name": "Nearside",
+    "slug": "nearside",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "scheme": "nearside",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nearside.app"
     },
     "android": {
+      "package": "com.nearside.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

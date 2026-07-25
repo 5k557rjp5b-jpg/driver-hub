@@ -71,7 +71,7 @@ export function SignUpScreen({ navigation }: Props) {
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.badge}>Nearside</Text>
           <Text style={styles.title}>Create account</Text>
           <Text style={styles.subtitle}>Set up your driver profile to track shifts.</Text>
         </View>
