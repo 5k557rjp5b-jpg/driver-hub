@@ -80,7 +80,7 @@ export function ShiftDetailsScreen({ route }: Props) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.badge}>Nearside</Text>
           <Text style={styles.title}>Shift Details</Text>
         </View>
 

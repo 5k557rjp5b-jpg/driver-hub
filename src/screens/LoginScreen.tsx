@@ -56,7 +56,7 @@ export function LoginScreen({ navigation }: Props) {
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.badge}>Nearside</Text>
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>Sign in to manage your shifts.</Text>
         </View>

@@ -132,7 +132,7 @@ export function ProfileScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.badge}>Nearside</Text>
           <Text style={styles.title}>Profile</Text>
           <Text style={styles.email}>{user?.email}</Text>
         </View>

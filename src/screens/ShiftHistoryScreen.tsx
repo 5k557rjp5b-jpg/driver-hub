@@ -54,7 +54,7 @@ export function ShiftHistoryScreen({ navigation }: Props) {
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} />}
       >
         <View style={styles.header}>
-          <Text style={styles.badge}>Driver Hub</Text>
+          <Text style={styles.badge}>Nearside</Text>
           <Text style={styles.title}>Shift History</Text>
           <Text style={styles.subtitle}>Completed shifts, newest first.</Text>
         </View>
