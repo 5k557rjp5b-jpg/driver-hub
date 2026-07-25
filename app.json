@@ -7,6 +7,11 @@
     "icon": "./assets/icon.png",
     "scheme": "nearside",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#14806A"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nearside.app"
@@ -14,10 +19,8 @@
     "android": {
       "package": "com.nearside.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#14806A"
       },
       "predictiveBackGestureEnabled": false
     },
