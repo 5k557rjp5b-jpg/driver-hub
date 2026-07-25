@@ -50,6 +50,7 @@ export function ShiftHistoryScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
+        alwaysBounceVertical
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} />}
       >

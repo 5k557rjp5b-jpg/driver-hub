@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -61,6 +62,7 @@ export function DashboardScreen() {
     hasActiveConfiguration,
     loading: payLoading,
     fetchConfigurationById,
+    refresh: refreshPayConfiguration,
   } = usePayConfiguration(user?.id);
 
   const [now, setNow] = useState(new Date());
@@ -97,6 +99,16 @@ export function DashboardScreen() {
     const interval = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(interval);
   }, []);
+
+  // Re-fetch when Dashboard regains focus (e.g. after saving pay setup on Profile).
+  // Tab screens stay mounted, so mount-only hooks miss Profile saves on native.
+  // refresh / refreshPayConfiguration are stable per userId — no refetch loop.
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+      void refreshPayConfiguration();
+    }, [refresh, refreshPayConfiguration]),
+  );
 
   // Load the pay model frozen on the active shift — not the current profile config,
   // which can diverge if the driver changes pay setup mid-shift.
@@ -147,7 +159,7 @@ export function DashboardScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await refresh();
+    await Promise.all([refresh(), refreshPayConfiguration()]);
     setRefreshing(false);
   };
 
@@ -205,6 +217,7 @@ export function DashboardScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
+        alwaysBounceVertical
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} />}
       >

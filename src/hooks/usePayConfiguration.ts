@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
 import type { PayConfiguration, PayModel } from '../types';
@@ -50,15 +50,25 @@ export function usePayConfiguration(userId: string | undefined) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    hasLoadedRef.current = false;
+  }, [userId]);
 
   const fetchConfiguration = useCallback(async () => {
     if (!userId) {
       setConfiguration(null);
       setLoading(false);
+      hasLoadedRef.current = false;
       return;
     }
 
-    setLoading(true);
+    // Full-screen spinner only on first load — focus/pull refreshes keep UI mounted
+    // so RefreshControl is not torn down mid-gesture (native).
+    if (!hasLoadedRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     const { data, error: fetchError } = await supabase
@@ -75,6 +85,7 @@ export function usePayConfiguration(userId: string | undefined) {
       setConfiguration(data);
     }
 
+    hasLoadedRef.current = true;
     setLoading(false);
   }, [userId]);
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
 import type { Shift } from '../types';
@@ -32,6 +32,11 @@ export function useShifts(userId: string | undefined) {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [payInputLoading, setPayInputLoading] = useState(false);
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    hasLoadedRef.current = false;
+  }, [userId]);
 
   const patchLocalShift = useCallback((shiftId: string, patch: Partial<Shift>) => {
     setActiveShift((current) =>
@@ -49,10 +54,15 @@ export function useShifts(userId: string | undefined) {
       setActiveShift(null);
       setPeriodShifts([]);
       setLoading(false);
+      hasLoadedRef.current = false;
       return;
     }
 
-    setLoading(true);
+    // Full-screen spinner only on first load — focus/pull refreshes keep ScrollView
+    // mounted so RefreshControl is not torn down mid-gesture (native).
+    if (!hasLoadedRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     const startOfMonth = getStartOfMonth().toISOString();
@@ -86,6 +96,7 @@ export function useShifts(userId: string | undefined) {
       setPeriodShifts(periodResult.data ?? []);
     }
 
+    hasLoadedRef.current = true;
     setLoading(false);
   }, [userId]);
 
